@@ -6,6 +6,7 @@ import (
 	"time"
 
 	fs "github.com/Raytar/wrfs"
+	"go.uber.org/multierr"
 )
 
 type Action interface {
@@ -72,6 +73,13 @@ func (g Group) Run(action Action, opts ...RunOption) {
 			o.ErrorHandler(err)
 		}
 	}
+}
+
+func (g Group) Close() (err error) {
+	for _, h := range g {
+		err = multierr.Append(err, h.Close())
+	}
+	return err
 }
 
 type Host interface {

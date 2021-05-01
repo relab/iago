@@ -3,9 +3,12 @@ package iago
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"os"
 
 	"github.com/Raytar/iago/sftpfs"
 	fs "github.com/Raytar/wrfs"
+	"github.com/kevinburke/ssh_config"
 	"github.com/pkg/sftp"
 	"go.uber.org/multierr"
 	"golang.org/x/crypto/ssh"
@@ -71,4 +74,33 @@ func (h *sshHost) Execute(ctx context.Context, cmd string) (output string, err e
 // Close closes the connection to the host.
 func (h *sshHost) Close() error {
 	return multierr.Combine(h.sftpClient.Close(), h.client.Close())
+}
+
+func NewSSHGroup(hosts []string, sshConfigPath string, clientCfg ssh.ClientConfig) (g Group, err error) {
+	f, err := os.Open(sshConfigPath)
+	if err != nil {
+		return nil, err
+	}
+
+	sshCfg, err := ssh_config.Decode(f)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, h := range hosts {
+		addr, err := sshCfg.Get(h, "HostName")
+		if err != nil {
+			return nil, err
+		}
+		if addr == "" {
+			continue
+		}
+		host, err := DialSSH(h, fmt.Sprintf("%s:22", addr), &clientCfg)
+		if err != nil {
+			return nil, err
+		}
+		g = append(g, host)
+	}
+
+	return g, nil
 }
