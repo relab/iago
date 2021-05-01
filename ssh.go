@@ -5,14 +5,17 @@ import (
 	"context"
 
 	"github.com/Raytar/iago/sftpfs"
+	fs "github.com/Raytar/wrfs"
 	"github.com/pkg/sftp"
+	"go.uber.org/multierr"
 	"golang.org/x/crypto/ssh"
 )
 
 type sshHost struct {
-	name   string
-	client *ssh.Client
-	*sftpfs.SFTPFS
+	name       string
+	client     *ssh.Client
+	sftpClient *sftp.Client
+	fs.FS
 }
 
 func DialSSH(name, addr string, cfg *ssh.ClientConfig) (Host, error) {
@@ -31,7 +34,7 @@ func DialSSH(name, addr string, cfg *ssh.ClientConfig) (Host, error) {
 		return nil, err
 	}
 
-	return &sshHost{name, client, sftpFS}, nil
+	return &sshHost{name, client, sftpClient, sftpFS}, nil
 }
 
 // Name returns the name of this host.
@@ -67,5 +70,5 @@ func (h *sshHost) Execute(ctx context.Context, cmd string) (output string, err e
 
 // Close closes the connection to the host.
 func (h *sshHost) Close() error {
-	return h.client.Close()
+	return multierr.Combine(h.sftpClient.Close(), h.client.Close())
 }

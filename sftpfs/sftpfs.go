@@ -7,7 +7,6 @@ import (
 	"time"
 
 	fs "github.com/Raytar/wrfs"
-
 	"github.com/pkg/sftp"
 )
 
@@ -43,15 +42,22 @@ func (entry sftpDirEntry) Info() (fs.FileInfo, error) {
 	return entry.fi, nil
 }
 
-type SFTPFS struct {
+type sftpFS struct {
 	client *sftp.Client
-	root   string
+	prefix string
 }
 
-// New returns a new SFTPFS from the given sftp client.
+// New returns a new sftpFS from the given sftp client.
 // All paths given in method calls on this FS will be relative to the given rootdir.
-func New(client *sftp.Client, rootdir string) *SFTPFS {
-	return &SFTPFS{client, rootdir}
+func New(client *sftp.Client, rootdir string) *sftpFS {
+	return &sftpFS{client, rootdir}
+}
+
+func (wrapper *sftpFS) fullName(op, name string) (string, error) {
+	if !fs.ValidPath(name) {
+		return "", &fs.PathError{Op: op, Path: name, Err: fs.ErrInvalid}
+	}
+	return wrapper.prefix + "/" + name, nil
 }
 
 // Open opens the named file.
@@ -63,11 +69,12 @@ func New(client *sftp.Client, rootdir string) *SFTPFS {
 // Open should reject attempts to open names that do not satisfy
 // ValidPath(name), returning a *PathError with Err set to
 // ErrInvalid or ErrNotExist.
-func (wrapper *SFTPFS) Open(name string) (fs.File, error) {
-	if !fs.ValidPath(name) {
-		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrInvalid}
+func (wrapper *sftpFS) Open(name string) (fs.File, error) {
+	full, err := wrapper.fullName("open", name)
+	if err != nil {
+		return nil, err
 	}
-	file, err := wrapper.client.Open(name)
+	file, err := wrapper.client.Open(full)
 	if err != nil {
 		return nil, &fs.PathError{Op: "open", Path: name, Err: err}
 	}
@@ -76,11 +83,12 @@ func (wrapper *SFTPFS) Open(name string) (fs.File, error) {
 
 // Stat returns a FileInfo describing the file.
 // If there is an error, it should be of type *PathError.
-func (wrapper *SFTPFS) Stat(name string) (fs.FileInfo, error) {
-	if !fs.ValidPath(name) {
-		return nil, &fs.PathError{Op: "stat", Path: name, Err: fs.ErrInvalid}
+func (wrapper *sftpFS) Stat(name string) (fs.FileInfo, error) {
+	full, err := wrapper.fullName("stat", name)
+	if err != nil {
+		return nil, err
 	}
-	fi, err := wrapper.client.Stat(name)
+	fi, err := wrapper.client.Stat(full)
 	if err != nil {
 		return nil, &fs.PathError{Op: "stat", Path: name, Err: err}
 	}
@@ -89,11 +97,12 @@ func (wrapper *SFTPFS) Stat(name string) (fs.FileInfo, error) {
 
 // ReadDir reads the named directory
 // and returns a list of directory entries sorted by filename.
-func (wrapper *SFTPFS) ReadDir(name string) ([]fs.DirEntry, error) {
-	if !fs.ValidPath(name) {
-		return nil, &fs.PathError{Op: "readdir", Path: name, Err: fs.ErrInvalid}
+func (wrapper *sftpFS) ReadDir(name string) ([]fs.DirEntry, error) {
+	full, err := wrapper.fullName("readdir", name)
+	if err != nil {
+		return nil, err
 	}
-	files, err := wrapper.client.ReadDir(name)
+	files, err := wrapper.client.ReadDir(full)
 	if err != nil {
 		return nil, &fs.PathError{Op: "readdir", Path: name, Err: err}
 	}
@@ -104,12 +113,12 @@ func (wrapper *SFTPFS) ReadDir(name string) ([]fs.DirEntry, error) {
 	return dirEntries, nil
 }
 
-// Functions for creating files / directories
-func (wrapper *SFTPFS) Mkdir(name string, perm fs.FileMode) error {
-	if !fs.ValidPath(name) {
-		return &fs.PathError{Op: "mkdir", Path: name, Err: fs.ErrInvalid}
+func (wrapper *sftpFS) Mkdir(name string, perm fs.FileMode) error {
+	full, err := wrapper.fullName("mkdir", name)
+	if err != nil {
+		return err
 	}
-	err := wrapper.client.Mkdir(name)
+	err = wrapper.client.Mkdir(full)
 	if err != nil {
 		return &fs.PathError{Op: "mkdir", Path: name, Err: err}
 	}
@@ -121,46 +130,13 @@ func (wrapper *SFTPFS) Mkdir(name string, perm fs.FileMode) error {
 	return nil
 }
 
-func (wrapper *SFTPFS) MkdirAll(p string, perm fs.FileMode) error {
-	if !fs.ValidPath(p) {
-		return &fs.PathError{Op: "mkdir", Path: p, Err: fs.ErrInvalid}
-	}
-
-	dir, err := wrapper.Stat(p)
-	if err == nil {
-		if dir.IsDir() {
-			return nil
-		}
-		return &fs.PathError{Op: "mkdir", Path: p, Err: syscall.ENOTDIR}
-	}
-
-	i := len(p)
-	for i > 0 && !os.IsPathSeparator(p[i-1]) {
-		i--
-	}
-
-	if i > 1 {
-		// create parent
-		err = wrapper.MkdirAll(p[:i-1], perm)
-		if err != nil {
-			return err
-		}
-	}
-
-	// now the parent has been created
-	err = wrapper.Mkdir(p, perm)
+func (wrapper *sftpFS) OpenFile(name string, flag int, perm fs.FileMode) (fs.File, error) {
+	full, err := wrapper.fullName("open", name)
 	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (wrapper *SFTPFS) OpenFile(name string, flag int, perm fs.FileMode) (fs.File, error) {
-	if !fs.ValidPath(name) {
-		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrInvalid}
+		return nil, err
 	}
 	create := false
-	fi, err := wrapper.Stat(name)
+	fi, err := wrapper.Stat(full)
 	if err == nil {
 		if fi.IsDir() {
 			return nil, &fs.PathError{Op: "open", Path: name, Err: syscall.EISDIR}
@@ -169,7 +145,7 @@ func (wrapper *SFTPFS) OpenFile(name string, flag int, perm fs.FileMode) (fs.Fil
 	if errors.Is(err, fs.ErrNotExist) {
 		create = true
 	}
-	file, err := wrapper.client.OpenFile(name, flag)
+	file, err := wrapper.client.OpenFile(full, flag)
 	if err != nil {
 		return nil, &fs.PathError{Op: "open", Path: name, Err: err}
 	}
@@ -184,88 +160,94 @@ func (wrapper *SFTPFS) OpenFile(name string, flag int, perm fs.FileMode) (fs.Fil
 	return file, nil
 }
 
-// Functions for modifying existing files
-func (wrapper *SFTPFS) Chmod(name string, mode fs.FileMode) error {
-	if !fs.ValidPath(name) {
-		return &fs.PathError{Op: "chmod", Path: name, Err: fs.ErrInvalid}
+func (wrapper *sftpFS) Chmod(name string, mode fs.FileMode) error {
+	full, err := wrapper.fullName("chmod", name)
+	if err != nil {
+		return err
 	}
-	err := wrapper.client.Chmod(name, mode)
+	err = wrapper.client.Chmod(full, mode)
 	if err != nil {
 		return &fs.PathError{Op: "chmod", Path: name, Err: err}
 	}
 	return nil
 }
 
-func (wrapper *SFTPFS) Chown(name string, uid int, gid int) error {
-	if !fs.ValidPath(name) {
-		return &fs.PathError{Op: "chown", Path: name, Err: fs.ErrInvalid}
+func (wrapper *sftpFS) Chown(name string, uid int, gid int) error {
+	full, err := wrapper.fullName("chown", name)
+	if err != nil {
+		return err
 	}
-	err := wrapper.client.Chown(name, uid, gid)
+	err = wrapper.client.Chown(full, uid, gid)
 	if err != nil {
 		return &fs.PathError{Op: "chown", Path: name, Err: err}
 	}
 	return nil
 }
 
-func (wrapper *SFTPFS) Chtimes(name string, atime time.Time, mtime time.Time) error {
-	if !fs.ValidPath(name) {
-		return &fs.PathError{Op: "chtimes", Path: name, Err: fs.ErrInvalid}
+func (wrapper *sftpFS) Chtimes(name string, atime time.Time, mtime time.Time) error {
+	full, err := wrapper.fullName("chtimes", name)
+	if err != nil {
+		return err
 	}
-	err := wrapper.client.Chtimes(name, atime, mtime)
+	err = wrapper.client.Chtimes(full, atime, mtime)
 	if err != nil {
 		return &fs.PathError{Op: "chtimes", Path: name, Err: err}
 	}
 	return nil
 }
 
-func (wrapper *SFTPFS) Remove(name string) error {
-	if !fs.ValidPath(name) {
-		return &fs.PathError{Op: "remove", Path: name, Err: fs.ErrInvalid}
+func (wrapper *sftpFS) Remove(name string) error {
+	full, err := wrapper.fullName("remove", name)
+	if err != nil {
+		return err
 	}
-	err := wrapper.client.Remove(name)
+	err = wrapper.client.Remove(full)
 	if err != nil {
 		return &fs.PathError{Op: "remove", Path: name, Err: err}
 	}
 	return nil
 }
 
-func (wrapper *SFTPFS) Rename(oldpath string, newpath string) error {
-	if !fs.ValidPath(oldpath) {
-		return &fs.PathError{Op: "rename", Path: oldpath, Err: fs.ErrInvalid}
-	}
-	if !fs.ValidPath(newpath) {
-		return &fs.PathError{Op: "rename", Path: newpath, Err: fs.ErrInvalid}
-	}
-	err := wrapper.client.Rename(oldpath, newpath)
+func (wrapper *sftpFS) Rename(oldpath string, newpath string) error {
+	oldfull, err := wrapper.fullName("rename", oldpath)
 	if err != nil {
-		return &fs.PathError{Op: "rename", Path: oldpath, Err: err}
+		return err
+	}
+	newfull, err := wrapper.fullName("rename", newpath)
+	if err != nil {
+		return err
+	}
+	err = wrapper.client.Rename(oldfull, newfull)
+	if err != nil {
+		return &os.LinkError{Op: "rename", Old: oldpath, New: newpath, Err: err}
 	}
 	return nil
 }
 
-func (wrapper *SFTPFS) Symlink(oldname string, newname string) error {
-	if !fs.ValidPath(oldname) {
-		return &fs.PathError{Op: "symlink", Path: oldname, Err: fs.ErrInvalid}
-	}
-	if !fs.ValidPath(newname) {
-		return &fs.PathError{Op: "symlink", Path: newname, Err: fs.ErrInvalid}
-	}
-	err := wrapper.client.Symlink(oldname, newname)
+func (wrapper *sftpFS) Symlink(oldname string, newname string) error {
+	oldfull, err := wrapper.fullName("symlink", oldname)
 	if err != nil {
-		return &fs.PathError{Op: "symlink", Path: oldname, Err: err}
+		return err
+	}
+	newfull, err := wrapper.fullName("symlink", newname)
+	if err != nil {
+		return err
+	}
+	err = wrapper.client.Symlink(oldfull, newfull)
+	if err != nil {
+		return &os.LinkError{Op: "symlink", Old: oldname, New: newname, Err: err}
 	}
 	return nil
 }
 
-func (wrapper *SFTPFS) Truncate(name string, size int64) error {
-	if !fs.ValidPath(name) {
-		return &fs.PathError{Op: "truncate", Path: name, Err: fs.ErrInvalid}
-	}
-	err := wrapper.client.Truncate(name, size)
+func (wrapper *sftpFS) Truncate(name string, size int64) error {
+	full, err := wrapper.fullName("truncate", name)
 	if err != nil {
-		return &fs.PathError{Op: "truncate", Path: name, Err: fs.ErrInvalid}
+		return err
+	}
+	err = wrapper.client.Truncate(full, size)
+	if err != nil {
+		return &fs.PathError{Op: "truncate", Path: name, Err: err}
 	}
 	return nil
 }
-
-var _ iagofs.WriteFS = (*SFTPFS)(nil)
