@@ -2,11 +2,10 @@ package iago
 
 import (
 	"context"
-	"io/fs"
 	"log"
 	"time"
 
-	iagofs "github.com/Raytar/iago/fs"
+	fs "github.com/Raytar/wrfs"
 )
 
 type Action interface {
@@ -76,9 +75,7 @@ func (g Group) Run(action Action, opts ...RunOption) {
 }
 
 type Host interface {
-	iagofs.WriteFS
-	fs.StatFS
-	fs.ReadDirFS
+	fs.FS
 
 	// Name returns the name of this host.
 	Name() string

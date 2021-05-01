@@ -4,13 +4,12 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/fs"
 	"log"
 	"os"
 	"path"
 	"path/filepath"
 
-	iagofs "github.com/Raytar/iago/fs"
+	fs "github.com/Raytar/wrfs"
 )
 
 type shellAction struct {
@@ -47,11 +46,11 @@ func (ca copyAction) Apply(ctx context.Context, host Host) (err error) {
 		src  string
 		dest string
 		from fs.FS
-		to   iagofs.WriteFS
+		to   fs.FS
 	)
 	if ca.fetch {
 		from = host
-		to = iagofs.LocalFS{}
+		to = fs.DirFS("/")
 		src = filepath.Clean(ca.src)
 		dest, err = filepath.Abs(ca.dest)
 		// because we might be fetching from other hosts as well, we will append the host's name to the file
@@ -60,7 +59,7 @@ func (ca copyAction) Apply(ctx context.Context, host Host) (err error) {
 			return err
 		}
 	} else {
-		from = iagofs.LocalFS{}
+		from = fs.DirFS("/")
 		to = host
 		src, err = filepath.Abs(ca.src)
 		if err != nil {
@@ -83,7 +82,7 @@ func (ca copyAction) Apply(ctx context.Context, host Host) (err error) {
 		return err
 	}
 
-	err = to.MkdirAll(dest, ca.perm)
+	err = fs.MkdirAll(to, dest, ca.perm)
 	if err != nil {
 		return err
 	}
@@ -97,15 +96,15 @@ func (ca copyAction) Apply(ctx context.Context, host Host) (err error) {
 	return nil
 }
 
-func copy(src, dest string, perm fs.FileMode, from fs.FS, to iagofs.WriteFS) error {
+func copy(src, dest string, perm fs.FileMode, from fs.FS, to fs.FS) error {
 	fromF, err := from.Open(src)
 	if err != nil {
 		return err
 	}
-	toF, err := to.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	toF, err := fs.OpenFile(to, dest, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
 	if err != nil {
 		return err
 	}
-	_, err = io.Copy(toF, fromF)
+	_, err = io.Copy(toF.(io.Writer), fromF)
 	return err
 }

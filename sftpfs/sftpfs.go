@@ -2,13 +2,11 @@ package sftpfs
 
 import (
 	"errors"
-	"io/fs"
 	"os"
-	"path"
 	"syscall"
 	"time"
 
-	iagofs "github.com/Raytar/iago/fs"
+	fs "github.com/Raytar/wrfs"
 
 	"github.com/pkg/sftp"
 )
@@ -47,10 +45,13 @@ func (entry sftpDirEntry) Info() (fs.FileInfo, error) {
 
 type SFTPFS struct {
 	client *sftp.Client
+	root   string
 }
 
-func New(client *sftp.Client) *SFTPFS {
-	return &SFTPFS{client}
+// New returns a new SFTPFS from the given sftp client.
+// All paths given in method calls on this FS will be relative to the given rootdir.
+func New(client *sftp.Client, rootdir string) *SFTPFS {
+	return &SFTPFS{client, rootdir}
 }
 
 // Open opens the named file.
@@ -154,18 +155,7 @@ func (wrapper *SFTPFS) MkdirAll(p string, perm fs.FileMode) error {
 	return nil
 }
 
-func (wrapper *SFTPFS) Create(name string) (iagofs.WriteFile, error) {
-	if !fs.ValidPath(name) {
-		return nil, &fs.PathError{Op: "create", Path: name, Err: fs.ErrInvalid}
-	}
-	file, err := wrapper.client.Create(name)
-	if err != nil {
-		return nil, &fs.PathError{Op: "create", Path: name, Err: err}
-	}
-	return file, nil
-}
-
-func (wrapper *SFTPFS) OpenFile(name string, flag int, perm fs.FileMode) (iagofs.WriteFile, error) {
+func (wrapper *SFTPFS) OpenFile(name string, flag int, perm fs.FileMode) (fs.File, error) {
 	if !fs.ValidPath(name) {
 		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrInvalid}
 	}
@@ -237,23 +227,6 @@ func (wrapper *SFTPFS) Remove(name string) error {
 		return &fs.PathError{Op: "remove", Path: name, Err: err}
 	}
 	return nil
-}
-
-func (wrapper *SFTPFS) RemoveAll(p string) error {
-	if !fs.ValidPath(p) {
-		return &fs.PathError{Op: "remove", Path: p, Err: fs.ErrInvalid}
-	}
-	files, err := wrapper.ReadDir(p)
-	if err != nil {
-		return err
-	}
-	for _, fi := range files {
-		err = wrapper.Remove(path.Join(p, fi.Name()))
-		if err != nil {
-			return err
-		}
-	}
-	return wrapper.Remove(p)
 }
 
 func (wrapper *SFTPFS) Rename(oldpath string, newpath string) error {

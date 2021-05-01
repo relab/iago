@@ -26,7 +26,7 @@ func DialSSH(name, addr string, cfg *ssh.ClientConfig) (Host, error) {
 		return nil, err
 	}
 
-	sftpFS := sftpfs.New(sftpClient)
+	sftpFS := sftpfs.New(sftpClient, "/")
 	if err != nil {
 		return nil, err
 	}
