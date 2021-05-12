@@ -9,68 +9,54 @@ import (
 	"go.uber.org/multierr"
 )
 
+type Task struct {
+	Name    string
+	Action  Action
+	OnError ErrorHandler
+	Timeout time.Duration
+}
+
+func (t *Task) SetDefaults() {
+	if t.OnError == nil {
+		t.OnError = Panic
+	}
+	if t.Timeout == 0 {
+		t.Timeout = time.Minute
+	}
+}
+
 type Action interface {
 	Apply(ctx context.Context, host Host) error
 }
 
-type RunOptions struct {
-	ErrorHandler ErrorHandler
-	Timeout      time.Duration
-}
-
-func NewRunOptions(opts []RunOption) RunOptions {
-	o := RunOptions{}
-	// applying the default options
-	PanicOnError(&o)
-	WithTimeout(time.Minute)(&o)
-
-	// now applying the provided options
-	for _, opt := range opts {
-		opt(&o)
-	}
-
-	return o
-}
-
-type RunOption func(opts *RunOptions)
-
-func WithTimeout(timeout time.Duration) RunOption {
-	return func(opts *RunOptions) {
-		opts.Timeout = timeout
-	}
-}
-
 type ErrorHandler func(error)
 
-func PanicOnError(opts *RunOptions) {
-	opts.ErrorHandler = func(e error) {
-		log.Panicln(e)
-	}
+func Panic(e error) {
+	log.Panicln(e)
 }
 
-func IgnoreErrors(opts *RunOptions) {
-	opts.ErrorHandler = func(e error) {
-		log.Println(e, "(ignored)")
-	}
+func Ignore(e error) {
+	log.Println(e, "(ignored)")
 }
 
 type Group []Host
 
-func (g Group) Run(action Action, opts ...RunOption) {
-	o := NewRunOptions(opts)
-	ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
+func (g Group) Run(task Task) {
+	task.SetDefaults()
+
+	ctx, cancel := context.WithTimeout(context.Background(), task.Timeout)
 	defer cancel()
 
 	errors := make(chan error)
 	for _, h := range g {
 		go func(h Host) {
-			errors <- action.Apply(ctx, h)
+			errors <- task.Action.Apply(ctx, h)
 		}(h)
 	}
 	for range g {
 		err := <-errors
 		if err != nil {
-			o.ErrorHandler(err)
+			task.OnError(err)
 		}
 	}
 }

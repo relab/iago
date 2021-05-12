@@ -45,9 +45,16 @@ func run(g Group) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	g.Run(Shell("uname -a > /tmp/test"))
-	g.Run(Fetch(
-		P("tmp/test"),
-		P("test").RelativeTo(wd),
-	))
+	g.Run(Task{
+		Name:   "get kernel information",
+		Action: Shell("uname -a > /tmp/unamea"),
+	})
+	g.Run(Task{
+		Name: "download kernel information",
+		Action: Download{
+			Src:  P("/tmp/unamea"),
+			Dest: P("test").RelativeTo(wd),
+			Mode: 0644,
+		},
+	})
 }

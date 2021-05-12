@@ -27,41 +27,47 @@ func (sa shellAction) Apply(ctx context.Context, host Host) error {
 }
 
 type Path struct {
-	path       string
-	relativeTo string
-	perm       fs.FileMode
+	Path   string
+	Prefix string
 }
 
 func (p Path) RelativeTo(path string) Path {
-	p.relativeTo = path
-	return p
-}
-
-func (p Path) WithPermissions(perm fs.FileMode) Path {
-	p.perm = perm
+	p.Prefix = path
 	return p
 }
 
 func P(path string) Path {
 	return Path{
-		path:       filepath.Clean(path),
-		relativeTo: ".",
-		perm:       0664,
+		Path:   filepath.Clean(path),
+		Prefix: "",
 	}
+}
+
+type Upload struct {
+	Src  Path
+	Dest Path
+	Mode fs.FileMode
+}
+
+func (u Upload) Apply(ctx context.Context, host Host) error {
+	return copyAction{src: u.Src, dest: u.Dest, mode: u.Mode, fetch: false}.Apply(ctx, host)
+}
+
+type Download struct {
+	Src  Path
+	Dest Path
+	Mode fs.FileMode
+}
+
+func (d Download) Apply(ctx context.Context, host Host) error {
+	return copyAction{src: d.Src, dest: d.Dest, mode: d.Mode, fetch: true}.Apply(ctx, host)
 }
 
 type copyAction struct {
 	src   Path
 	dest  Path
 	fetch bool
-}
-
-func Copy(src, dest Path) Action {
-	return copyAction{src, dest, false}
-}
-
-func Fetch(src, dest Path) Action {
-	return copyAction{src, dest, true}
+	mode  fs.FileMode
 }
 
 func (ca copyAction) Apply(ctx context.Context, host Host) (err error) {
@@ -70,16 +76,16 @@ func (ca copyAction) Apply(ctx context.Context, host Host) (err error) {
 		to   fs.FS
 	)
 	if ca.fetch {
-		from, err = fs.Sub(host, ca.src.relativeTo)
+		from, err = fs.Sub(host, ca.src.Prefix)
 		if err != nil {
 			return err
 		}
-		to = fs.DirFS("/" + ca.dest.relativeTo)
+		to = fs.DirFS("/" + ca.dest.Prefix)
 		// because we might be fetching from other hosts as well, we will append the host's name to the file
-		ca.dest.path = ca.dest.path + "." + host.Name()
+		ca.dest.Path = ca.dest.Path + "." + host.Name()
 	} else {
-		from = fs.DirFS("/" + ca.src.relativeTo)
-		to, err = fs.Sub(host, ca.dest.relativeTo)
+		from = fs.DirFS("/" + ca.src.Prefix)
+		to, err = fs.Sub(host, ca.dest.Prefix)
 		if err != nil {
 			return err
 		}
@@ -88,27 +94,34 @@ func (ca copyAction) Apply(ctx context.Context, host Host) (err error) {
 		}
 	}
 
-	info, err := fs.Stat(from, ca.src.path)
+	info, err := fs.Stat(from, ca.src.Path)
 	if err != nil {
 		return err
 	}
 
-	if !info.IsDir() {
-		return copy(ca.src.path, ca.dest.path, ca.dest.perm, from, to)
+	if info.IsDir() {
+		return ca.copyDir(from, to)
 	}
+	return copyFile(ca.src.Path, ca.dest.Path, ca.mode, from, to)
+}
 
-	files, err := fs.ReadDir(from, ca.src.path)
+func (ca copyAction) copyDir(from, to fs.FS) error {
+	files, err := fs.ReadDir(from, ca.src.Path)
 	if err != nil {
 		return err
 	}
 
-	err = fs.MkdirAll(to, ca.dest.path, ca.dest.perm)
+	err = fs.MkdirAll(to, ca.dest.Path, ca.mode)
 	if err != nil {
 		return err
 	}
 
 	for _, info := range files {
-		err = copy(path.Join(ca.src.path, info.Name()), ca.dest.path, ca.dest.perm, from, to)
+		if info.IsDir() {
+			err = ca.copyDir(from, to)
+		} else {
+			err = copyFile(path.Join(ca.src.Path, info.Name()), ca.dest.Path, ca.mode, from, to)
+		}
 		if err != nil {
 			return err
 		}
@@ -116,7 +129,7 @@ func (ca copyAction) Apply(ctx context.Context, host Host) (err error) {
 	return nil
 }
 
-func copy(src, dest string, perm fs.FileMode, from fs.FS, to fs.FS) error {
+func copyFile(src, dest string, perm fs.FileMode, from fs.FS, to fs.FS) error {
 	fromF, err := from.Open(src)
 	if err != nil {
 		return err
