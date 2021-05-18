@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 
 	fs "github.com/Raytar/wrfs"
 )
@@ -37,8 +38,10 @@ func (p Path) RelativeTo(path string) Path {
 }
 
 func P(path string) Path {
+	path = filepath.Clean(path)
+	path = strings.TrimPrefix(path, "/")
 	return Path{
-		Path:   filepath.Clean(path),
+		Path:   path,
 		Prefix: "",
 	}
 }
