@@ -8,6 +8,8 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -42,9 +44,18 @@ func TestIago(t *testing.T) {
 		Action: Download{
 			Src:  P("/tmp/os"),
 			Dest: P(dir + "/os"),
+			Mode: 0644,
 		},
 		OnError: errFunc,
 	})
+
+	for i := range g {
+		f, err := os.ReadFile(filepath.Join(dir, "os."+strconv.Itoa(i)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Log(string(f))
+	}
 }
 
 const tag = "iago-test"
@@ -102,7 +113,7 @@ func setup(t *testing.T, n int) (g Group) {
 		var host Host
 
 		for j := 0; j < 10; j++ {
-			host, err = DialSSH(containers[i], "localhost:"+port, &ssh.ClientConfig{
+			host, err = DialSSH(strconv.Itoa(i), "localhost:"+port, &ssh.ClientConfig{
 				User:            "root",
 				Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
 				HostKeyCallback: ssh.InsecureIgnoreHostKey(),

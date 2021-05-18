@@ -23,7 +23,9 @@ func Shell(cmd string) Action {
 
 func (sa shellAction) Apply(ctx context.Context, host Host) error {
 	out, err := host.Execute(ctx, fmt.Sprintf("/bin/bash -c '%s'", sa.cmd))
-	log.Println(out)
+	if len(out) > 0 {
+		log.Println(out)
+	}
 	return err
 }
 
