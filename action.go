@@ -29,21 +29,32 @@ func (sa shellAction) Apply(ctx context.Context, host Host) error {
 	return err
 }
 
+func cleanPath(path string) string {
+	path = filepath.Clean(path)
+	path = strings.TrimPrefix(path, "/")
+	return path
+}
+
 type Path struct {
 	Path   string
 	Prefix string
 }
 
 func (p Path) RelativeTo(path string) Path {
-	p.Prefix = path
+	p.Prefix = cleanPath(path)
 	return p
 }
 
-func P(path string) Path {
-	path = filepath.Clean(path)
-	path = strings.TrimPrefix(path, "/")
+func (p Path) Expand(h Host) Path {
 	return Path{
-		Path:   path,
+		Path:   cleanPath(Expand(h, p.Path)),
+		Prefix: cleanPath(Expand(h, p.Prefix)),
+	}
+}
+
+func P(path string) Path {
+	return Path{
+		Path:   cleanPath(path),
 		Prefix: "",
 	}
 }
@@ -55,7 +66,7 @@ type Upload struct {
 }
 
 func (u Upload) Apply(ctx context.Context, host Host) error {
-	return copyAction{src: u.Src, dest: u.Dest, mode: u.Mode, fetch: false}.Apply(ctx, host)
+	return copyAction{src: u.Src.Expand(host), dest: u.Dest.Expand(host), mode: u.Mode, fetch: false}.Apply(ctx, host)
 }
 
 type Download struct {
@@ -65,7 +76,7 @@ type Download struct {
 }
 
 func (d Download) Apply(ctx context.Context, host Host) error {
-	return copyAction{src: d.Src, dest: d.Dest, mode: d.Mode, fetch: true}.Apply(ctx, host)
+	return copyAction{src: d.Src.Expand(host), dest: d.Dest.Expand(host), mode: d.Mode, fetch: true}.Apply(ctx, host)
 }
 
 type copyAction struct {

@@ -35,15 +35,15 @@ func TestIago(t *testing.T) {
 
 	g.Run(Task{
 		Name:    "Read distribution name",
-		Action:  Shell("grep '^ID=' /etc/os-release > /tmp/os"),
+		Action:  Shell("grep '^ID=' /etc/os-release > $HOME/os"),
 		OnError: errFunc,
 	})
 
 	g.Run(Task{
 		Name: "Download files",
 		Action: Download{
-			Src:  P("/tmp/os"),
-			Dest: P(dir + "/os"),
+			Src:  P("os").RelativeTo("$HOME"),
+			Dest: P("os").RelativeTo(dir),
 			Mode: 0644,
 		},
 		OnError: errFunc,

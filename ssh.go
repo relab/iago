@@ -1,10 +1,12 @@
 package iago
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/Raytar/iago/sftpfs"
 	fs "github.com/Raytar/wrfs"
@@ -16,6 +18,7 @@ import (
 
 type sshHost struct {
 	name       string
+	env        map[string]string
 	client     *ssh.Client
 	sftpClient *sftp.Client
 	fs.FS
@@ -37,12 +40,49 @@ func DialSSH(name, addr string, cfg *ssh.ClientConfig) (Host, error) {
 		return nil, err
 	}
 
-	return &sshHost{name, client, sftpClient, sftpFS}, nil
+	env, err := fetchEnv(client)
+	if err != nil {
+		return nil, err
+	}
+
+	return &sshHost{name, env, client, sftpClient, sftpFS}, nil
+}
+
+// fetchEnv returns a map containing the environment variables of the ssh server.
+func fetchEnv(cli *ssh.Client) (env map[string]string, err error) {
+	env = make(map[string]string)
+	cmd, err := cli.NewSession()
+	if err != nil {
+		return nil, err
+	}
+	defer cmd.Close()
+	out, err := cmd.Output("env")
+	if err != nil {
+		return nil, err
+	}
+	s := bufio.NewScanner(bytes.NewReader(out))
+	for s.Scan() {
+		l := s.Text()
+		i := strings.Index(l, "=")
+		if i < 1 {
+			continue
+		}
+		key := l[:i]
+		value := l[i+1:]
+		env[key] = value
+	}
+	return env, nil
 }
 
 // Name returns the name of this host.
 func (h *sshHost) Name() string {
 	return h.name
+}
+
+// GetEnv retrieves the value of the environment variable named by the key.
+// It returns the value, which will be empty if the variable is not present.
+func (h *sshHost) GetEnv(key string) string {
+	return h.env[key]
 }
 
 // Execute executes the given command and returns the output.

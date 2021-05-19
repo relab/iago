@@ -3,11 +3,14 @@ package iago
 import (
 	"context"
 	"log"
+	"os"
 	"time"
 
 	fs "github.com/Raytar/wrfs"
 	"go.uber.org/multierr"
 )
+
+const DefaultTimeout = 30 * time.Second
 
 type Task struct {
 	Name    string
@@ -21,7 +24,7 @@ func (t *Task) SetDefaults() {
 		t.OnError = Panic
 	}
 	if t.Timeout == 0 {
-		t.Timeout = time.Minute
+		t.Timeout = DefaultTimeout
 	}
 }
 
@@ -74,9 +77,18 @@ type Host interface {
 	// Name returns the name of this host.
 	Name() string
 
+	// GetEnv retrieves the value of the environment variable named by the key.
+	// It returns the value, which will be empty if the variable is not present.
+	GetEnv(key string) string
+
 	// Execute executes the given command and returns the output.
 	Execute(ctx context.Context, cmd string) (output string, err error)
 
 	// Close closes the connection to the host.
 	Close() error
+}
+
+// Expand expands any environment variables in the string 's' using the environment of the host 'h'.
+func Expand(h Host, s string) string {
+	return os.Expand(s, h.GetEnv)
 }
