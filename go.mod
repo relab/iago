@@ -4,10 +4,11 @@ go 1.16
 
 require (
 	github.com/Raytar/wrfs v0.0.0
+	github.com/alexhunt7/ssher v0.0.0-20190216204854-d36569cf7047
 	github.com/containerd/containerd v1.5.1 // indirect
 	github.com/docker/docker v20.10.6+incompatible
 	github.com/docker/go-connections v0.4.0
-	github.com/kevinburke/ssh_config v1.1.0
+	github.com/kevinburke/ssh_config v1.1.0 // indirect
 	github.com/moby/moby v20.10.6+incompatible
 	github.com/moby/sys/mount v0.2.0 // indirect
 	github.com/morikuni/aec v1.0.0 // indirect

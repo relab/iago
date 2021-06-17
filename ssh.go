@@ -5,12 +5,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/Raytar/iago/sftpfs"
 	fs "github.com/Raytar/wrfs"
-	"github.com/kevinburke/ssh_config"
+	"github.com/alexhunt7/ssher"
 	"github.com/pkg/sftp"
 	"go.uber.org/multierr"
 	"golang.org/x/crypto/ssh"
@@ -116,31 +115,19 @@ func (h *sshHost) Close() error {
 	return multierr.Combine(h.sftpClient.Close(), h.client.Close())
 }
 
-func NewSSHGroup(hosts []string, sshConfigPath string, clientCfg ssh.ClientConfig) (g Group, err error) {
-	f, err := os.Open(sshConfigPath)
-	if err != nil {
-		return nil, err
-	}
-
-	sshCfg, err := ssh_config.Decode(f)
-	if err != nil {
-		return nil, err
-	}
-
+// NewSSHGroup returns a new group from the given host aliases. sshConfigPath determines the ssh_config file to use.
+// If sshConfigPath is empty, the default configuration files will be used.
+func NewSSHGroup(hosts []string, sshConfigPath string) (g Group, err error) {
 	for _, h := range hosts {
-		addr, err := sshCfg.Get(h, "HostName")
+		clientCfg, addr, err := ssher.ClientConfig(h, sshConfigPath)
 		if err != nil {
 			return nil, err
 		}
-		if addr == "" {
-			continue
-		}
-		host, err := DialSSH(h, fmt.Sprintf("%s:22", addr), &clientCfg)
+		host, err := DialSSH(h, fmt.Sprintf("%s:22", addr), clientCfg)
 		if err != nil {
 			return nil, err
 		}
 		g = append(g, host)
 	}
-
 	return g, nil
 }
