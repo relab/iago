@@ -77,6 +77,9 @@ type Host interface {
 	// Name returns the name of this host.
 	Name() string
 
+	// Address returns the address of the host.
+	Address() string
+
 	// GetEnv retrieves the value of the environment variable named by the key.
 	// It returns the value, which will be empty if the variable is not present.
 	GetEnv(key string) string

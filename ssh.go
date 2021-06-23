@@ -78,6 +78,11 @@ func (h *sshHost) Name() string {
 	return h.name
 }
 
+// Address returns the address of the client.
+func (h *sshHost) Address() string {
+	return h.client.RemoteAddr().String()
+}
+
 // GetEnv retrieves the value of the environment variable named by the key.
 // It returns the value, which will be empty if the variable is not present.
 func (h *sshHost) GetEnv(key string) string {
