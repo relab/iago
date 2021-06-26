@@ -1,0 +1,17 @@
+---
+linters:
+  enable:
+    - revive
+    - gocyclo
+    - misspell
+
+linters-settings:
+  gocyclo:
+    min-complexity: 15
+
+  revive:
+    min-confidence: 0.21 # disables package comment warning
+
+issues:
+  exclude-use-default: false
+  exclude-case-sensitive: false

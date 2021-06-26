@@ -49,7 +49,7 @@ type sftpFS struct {
 
 // New returns a new sftpFS from the given sftp client.
 // All paths given in method calls on this FS will be relative to the given rootdir.
-func New(client *sftp.Client, rootdir string) *sftpFS {
+func New(client *sftp.Client, rootdir string) fs.FS {
 	return &sftpFS{client, rootdir}
 }
 

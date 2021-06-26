@@ -17,6 +17,7 @@ type shellAction struct {
 	cmd string
 }
 
+// Shell runs a shell command.
 func Shell(cmd string) Action {
 	return shellAction{cmd}
 }
@@ -35,16 +36,19 @@ func cleanPath(path string) string {
 	return path
 }
 
+// Path is a path to a file or directory, relative to the prefix.
 type Path struct {
 	Path   string
 	Prefix string
 }
 
+// RelativeTo sets the prefix for this path.
 func (p Path) RelativeTo(path string) Path {
 	p.Prefix = cleanPath(path)
 	return p
 }
 
+// Expand expands environment variables in the path and prefix strings using the environment of the given host.
 func (p Path) Expand(h Host) Path {
 	return Path{
 		Path:   cleanPath(Expand(h, p.Path)),
@@ -52,6 +56,7 @@ func (p Path) Expand(h Host) Path {
 	}
 }
 
+// P returns a path relative to the root directory.
 func P(path string) Path {
 	return Path{
 		Path:   cleanPath(path),
@@ -59,22 +64,26 @@ func P(path string) Path {
 	}
 }
 
+// Upload uploads a file or directory to a remote host.
 type Upload struct {
 	Src  Path
 	Dest Path
 	Mode fs.FileMode
 }
 
+// Apply performs the upload.
 func (u Upload) Apply(ctx context.Context, host Host) error {
 	return copyAction{src: u.Src.Expand(host), dest: u.Dest.Expand(host), mode: u.Mode, fetch: false}.Apply(ctx, host)
 }
 
+// Download downloads a file or directory from a remote host.
 type Download struct {
 	Src  Path
 	Dest Path
 	Mode fs.FileMode
 }
 
+// Apply performs the download.
 func (d Download) Apply(ctx context.Context, host Host) error {
 	return copyAction{src: d.Src.Expand(host), dest: d.Dest.Expand(host), mode: d.Mode, fetch: true}.Apply(ctx, host)
 }

@@ -60,7 +60,10 @@ func CreateSSHGroup(t *testing.T, n int) (g iago.Group) {
 	ports := getFreePorts(t, n)
 
 	t.Cleanup(func() {
-		g.Close()
+		err := g.Close()
+		if err != nil {
+			t.Error(err)
+		}
 		for _, container := range containers {
 			err := cli.ContainerRemove(context.Background(), container, types.ContainerRemoveOptions{Force: true})
 			if err != nil {
@@ -126,8 +129,16 @@ func buildImage(t *testing.T, cli *client.Client) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
-	io.Copy(os.Stdout, res.Body)
+	defer func() {
+		err = res.Body.Close()
+		if err != nil {
+			t.Error(err)
+		}
+	}()
+	_, err = io.Copy(os.Stdout, res.Body)
+	if err != nil {
+		t.Error(err)
+	}
 }
 
 func createContainer(t *testing.T, cli *client.Client, pubKey, port string) string {

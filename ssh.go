@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/Raytar/iago/sftpfs"
@@ -23,6 +24,7 @@ type sshHost struct {
 	fs.FS
 }
 
+// DialSSH connects to a remote host using ssh.
 func DialSSH(name, addr string, cfg *ssh.ClientConfig) (Host, error) {
 	client, err := ssh.Dial("tcp", addr, cfg)
 	if err != nil {
@@ -47,6 +49,23 @@ func DialSSH(name, addr string, cfg *ssh.ClientConfig) (Host, error) {
 	return &sshHost{name, env, client, sftpClient, sftpFS}, nil
 }
 
+// NewSSHGroup returns a new group from the given host aliases. sshConfigPath determines the ssh_config file to use.
+// If sshConfigPath is empty, the default configuration files will be used.
+func NewSSHGroup(hosts []string, sshConfigPath string) (g Group, err error) {
+	for _, h := range hosts {
+		clientCfg, addr, err := ssher.ClientConfig(h, sshConfigPath)
+		if err != nil {
+			return nil, err
+		}
+		host, err := DialSSH(h, fmt.Sprintf("%s:22", addr), clientCfg)
+		if err != nil {
+			return nil, err
+		}
+		g = append(g, host)
+	}
+	return g, nil
+}
+
 // fetchEnv returns a map containing the environment variables of the ssh server.
 func fetchEnv(cli *ssh.Client) (env map[string]string, err error) {
 	env = make(map[string]string)
@@ -54,7 +73,7 @@ func fetchEnv(cli *ssh.Client) (env map[string]string, err error) {
 	if err != nil {
 		return nil, err
 	}
-	defer cmd.Close()
+	defer safeClose(cmd, &err, io.EOF)
 	out, err := cmd.Output("env")
 	if err != nil {
 		return nil, err
@@ -93,18 +112,22 @@ func (h *sshHost) GetEnv(key string) string {
 func (h *sshHost) Execute(ctx context.Context, cmd string) (output string, err error) {
 	var outb bytes.Buffer
 
-	childCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
 	session, err := h.client.NewSession()
 	if err != nil {
 		return "", err
 	}
 
+	childCtx, cancel := context.WithCancel(ctx)
+	// create a channel to wait for helper goroutine
+	c := make(chan struct{})
+	defer func() { <-c }()
+	defer cancel()
+
 	go func() {
 		// closes the session when either the command completed, or the parent context was cancelled
 		<-childCtx.Done()
-		session.Close()
+		safeClose(session, &err, io.EOF)
+		close(c)
 	}()
 
 	session.Stdout = &outb
@@ -118,21 +141,4 @@ func (h *sshHost) Execute(ctx context.Context, cmd string) (output string, err e
 // Close closes the connection to the host.
 func (h *sshHost) Close() error {
 	return multierr.Combine(h.sftpClient.Close(), h.client.Close())
-}
-
-// NewSSHGroup returns a new group from the given host aliases. sshConfigPath determines the ssh_config file to use.
-// If sshConfigPath is empty, the default configuration files will be used.
-func NewSSHGroup(hosts []string, sshConfigPath string) (g Group, err error) {
-	for _, h := range hosts {
-		clientCfg, addr, err := ssher.ClientConfig(h, sshConfigPath)
-		if err != nil {
-			return nil, err
-		}
-		host, err := DialSSH(h, fmt.Sprintf("%s:22", addr), clientCfg)
-		if err != nil {
-			return nil, err
-		}
-		g = append(g, host)
-	}
-	return g, nil
 }
