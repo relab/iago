@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	fs "github.com/Raytar/wrfs"
+	fs "github.com/relab/wrfs"
 )
 
 type shellAction struct {

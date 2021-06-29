@@ -6,8 +6,8 @@ import (
 	"syscall"
 	"time"
 
-	fs "github.com/Raytar/wrfs"
 	"github.com/pkg/sftp"
+	fs "github.com/relab/wrfs"
 )
 
 type sftpDirEntry struct {

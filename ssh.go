@@ -9,9 +9,9 @@ import (
 	"strings"
 
 	"github.com/Raytar/iago/sftpfs"
-	fs "github.com/Raytar/wrfs"
 	"github.com/alexhunt7/ssher"
 	"github.com/pkg/sftp"
+	fs "github.com/relab/wrfs"
 	"go.uber.org/multierr"
 	"golang.org/x/crypto/ssh"
 )

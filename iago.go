@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	fs "github.com/Raytar/wrfs"
+	fs "github.com/relab/wrfs"
 	"go.uber.org/multierr"
 )
 
