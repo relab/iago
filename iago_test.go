@@ -1,9 +1,11 @@
 package iago_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	. "github.com/Raytar/iago"
@@ -20,6 +22,23 @@ func TestIago(t *testing.T) {
 	}
 
 	g.Run(Task{
+		Name: "Custom Shell Command",
+		Action: Func(func(ctx context.Context, host Host) (err error) {
+			var sb strings.Builder
+			err = Shell{
+				Command: "whoami",
+				Stdout:  &sb,
+			}.Apply(ctx, host)
+			if err != nil {
+				return err
+			}
+			t.Log(sb.String())
+			return nil
+		}),
+		OnError: errFunc,
+	})
+
+	g.Run(Task{
 		Name:    "Read distribution name",
 		Action:  Shell{Command: "grep '^ID=' /etc/os-release > $HOME/os"},
 		OnError: errFunc,
@@ -32,6 +51,15 @@ func TestIago(t *testing.T) {
 			Dest: P("os").RelativeTo(dir),
 			Mode: 0644,
 		},
+		OnError: errFunc,
+	})
+
+	g.Run(Task{
+		Name: "Custom Func",
+		Action: Func(func(ctx context.Context, host Host) (err error) {
+			t.Log(host.GetEnv("HOME"))
+			return nil
+		}),
 		OnError: errFunc,
 	})
 

@@ -11,16 +11,13 @@ import (
 	fs "github.com/relab/wrfs"
 )
 
-// ActionFunc is the function signature of an action.
-type ActionFunc func(ctx context.Context, host Host) error
-
 // Func returns an action that runs the function f.
-func Func(f ActionFunc) Action {
+func Func(f func(ctx context.Context, host Host) (err error)) Action {
 	return funcAction{f}
 }
 
 type funcAction struct {
-	f ActionFunc
+	f func(context.Context, Host) error
 }
 
 func (fa funcAction) Apply(ctx context.Context, host Host) error {
