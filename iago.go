@@ -3,6 +3,7 @@ package iago
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -54,7 +55,7 @@ func (g Group) Run(task Task) {
 	errors := make(chan error)
 	for _, h := range g {
 		go func(h Host) {
-			errors <- task.Action.Apply(ctx, h)
+			errors <- wrapError(h.Name(), task.Name, task.Action.Apply(ctx, h))
 		}(h)
 	}
 	for range g {
@@ -121,4 +122,31 @@ func safeClose(closer io.Closer, errPtr *error, ignoredErrs ...error) {
 		}
 	}
 	*errPtr = err
+}
+
+func wrapError(hostName string, taskName string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return TaskError{
+		TaskName: taskName,
+		HostName: hostName,
+		Err:      err,
+	}
+}
+
+// TaskError is the error type returned when an error occurs while running a task.
+type TaskError struct {
+	TaskName string
+	HostName string
+	Err      error
+}
+
+func (err TaskError) Error() string {
+	return fmt.Sprintf("(%s) %s: %s", err.HostName, err.TaskName, err.Err.Error())
+}
+
+// Unwrap returns the cause of the task error.
+func (err TaskError) Unwrap() error {
+	return err.Err
 }

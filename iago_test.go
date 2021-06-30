@@ -2,6 +2,7 @@ package iago_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -61,6 +62,12 @@ func TestIago(t *testing.T) {
 			return nil
 		}),
 		OnError: errFunc,
+	})
+
+	g.Run(Task{
+		Name:    "Should Error",
+		Action:  Func(func(ctx context.Context, host Host) (err error) { return errors.New("something happened") }),
+		OnError: func(e error) { t.Log(e) },
 	})
 
 	for i := range g {
