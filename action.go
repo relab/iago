@@ -11,6 +11,22 @@ import (
 	fs "github.com/relab/wrfs"
 )
 
+// ActionFunc is the function signature of an action.
+type ActionFunc func(ctx context.Context, host Host) error
+
+// Func returns an action that runs the function f.
+func Func(f ActionFunc) Action {
+	return funcAction{f}
+}
+
+type funcAction struct {
+	f ActionFunc
+}
+
+func (fa funcAction) Apply(ctx context.Context, host Host) error {
+	return fa.f(ctx, host)
+}
+
 func cleanPath(path string) string {
 	path = filepath.Clean(path)
 	path = strings.TrimPrefix(path, "/")
