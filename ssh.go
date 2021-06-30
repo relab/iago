@@ -138,6 +138,16 @@ func (h *sshHost) Execute(ctx context.Context, cmd string) (output string, err e
 	return outb.String(), nil
 }
 
+func (h *sshHost) NewCommand() (CmdRunner, error) {
+	session, err := h.client.NewSession()
+	if err != nil {
+		return nil, err
+	}
+	return sshCmd{
+		session: session,
+	}, nil
+}
+
 // Close closes the connection to the host.
 func (h *sshHost) Close() error {
 	return multierr.Combine(h.sftpClient.Close(), h.client.Close())
@@ -145,15 +155,33 @@ func (h *sshHost) Close() error {
 
 type sshCmd struct {
 	session *ssh.Session
-	ctx     context.Context
 }
 
 func (c sshCmd) Run(cmd string) error {
+	defer c.session.Close()
 	return c.session.Run(cmd)
 }
 
-func (c sshCmd) RunContext(ctx context.Context, cmd string) error {
+func (c sshCmd) RunContext(ctx context.Context, cmd string) (err error) {
+	if err = c.session.Start(cmd); err != nil {
+		return err
+	}
 
+	errChan := make(chan error)
+	ctx, cancel := context.WithCancel(ctx)
+	defer func() {
+		cancel()
+		if err == nil {
+			err = <-errChan
+		}
+	}()
+
+	go func() {
+		<-ctx.Done()
+		errChan <- c.session.Close()
+	}()
+
+	return c.session.Wait()
 }
 
 func (c sshCmd) Start(cmd string) error {
@@ -161,6 +189,7 @@ func (c sshCmd) Start(cmd string) error {
 }
 
 func (c sshCmd) Wait() error {
+	defer c.session.Close()
 	return c.session.Wait()
 }
 

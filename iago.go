@@ -30,7 +30,7 @@ type Host interface {
 	GetEnv(key string) string
 
 	// NewCommand returns a new command runner.
-	NewCommand() CmdRunner
+	NewCommand() (CmdRunner, error)
 
 	// Close closes the connection to the host.
 	Close() error

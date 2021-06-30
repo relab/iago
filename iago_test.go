@@ -21,7 +21,7 @@ func TestIago(t *testing.T) {
 
 	g.Run(Task{
 		Name:    "Read distribution name",
-		Action:  Shell("grep '^ID=' /etc/os-release > $HOME/os"),
+		Action:  Shell{Command: "grep '^ID=' /etc/os-release > $HOME/os"},
 		OnError: errFunc,
 	})
 
