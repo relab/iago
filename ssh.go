@@ -142,3 +142,44 @@ func (h *sshHost) Execute(ctx context.Context, cmd string) (output string, err e
 func (h *sshHost) Close() error {
 	return multierr.Combine(h.sftpClient.Close(), h.client.Close())
 }
+
+type sshCmd struct {
+	session *ssh.Session
+	ctx     context.Context
+}
+
+func (c sshCmd) Run(cmd string) error {
+	return c.session.Run(cmd)
+}
+
+func (c sshCmd) RunContext(ctx context.Context, cmd string) error {
+
+}
+
+func (c sshCmd) Start(cmd string) error {
+	return c.session.Start(cmd)
+}
+
+func (c sshCmd) Wait() error {
+	return c.session.Wait()
+}
+
+func (c sshCmd) StdinPipe() (io.WriteCloser, error) {
+	return c.session.StdinPipe()
+}
+
+func (c sshCmd) StdoutPipe() (io.ReadCloser, error) {
+	rdr, err := c.session.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	return io.NopCloser(rdr), nil
+}
+
+func (c sshCmd) StderrPipe() (io.ReadCloser, error) {
+	rdr, err := c.session.StderrPipe()
+	if err != nil {
+		return nil, err
+	}
+	return io.NopCloser(rdr), nil
+}

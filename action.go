@@ -2,9 +2,7 @@ package iago
 
 import (
 	"context"
-	"fmt"
 	"io"
-	"log"
 	"os"
 	"path"
 	"path/filepath"
@@ -12,23 +10,6 @@ import (
 
 	fs "github.com/relab/wrfs"
 )
-
-type shellAction struct {
-	cmd string
-}
-
-// Shell runs a shell command.
-func Shell(cmd string) Action {
-	return shellAction{cmd}
-}
-
-func (sa shellAction) Apply(ctx context.Context, host Host) error {
-	out, err := host.Execute(ctx, fmt.Sprintf("/bin/bash -c '%s'", sa.cmd))
-	if len(out) > 0 {
-		log.Println(out)
-	}
-	return err
-}
 
 func cleanPath(path string) string {
 	path = filepath.Clean(path)

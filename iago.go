@@ -29,8 +29,8 @@ type Host interface {
 	// It returns the value, which will be empty if the variable is not present.
 	GetEnv(key string) string
 
-	// Execute executes the given command and returns the output.
-	Execute(ctx context.Context, cmd string) (output string, err error)
+	// NewCommand returns a new command runner.
+	NewCommand() CmdRunner
 
 	// Close closes the connection to the host.
 	Close() error
