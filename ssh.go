@@ -157,8 +157,8 @@ type sshCmd struct {
 	session *ssh.Session
 }
 
-func (c sshCmd) Run(cmd string) error {
-	defer c.session.Close()
+func (c sshCmd) Run(cmd string) (err error) {
+	defer safeClose(c.session, &err, io.EOF)
 	return c.session.Run(cmd)
 }
 
@@ -188,8 +188,8 @@ func (c sshCmd) Start(cmd string) error {
 	return c.session.Start(cmd)
 }
 
-func (c sshCmd) Wait() error {
-	defer c.session.Close()
+func (c sshCmd) Wait() (err error) {
+	defer safeClose(c.session, &err, io.EOF)
 	return c.session.Wait()
 }
 
