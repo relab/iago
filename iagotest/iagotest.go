@@ -16,11 +16,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Raytar/iago"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
 	"github.com/moby/moby/client"
+	"github.com/relab/iago"
 	"golang.org/x/crypto/ssh"
 )
 

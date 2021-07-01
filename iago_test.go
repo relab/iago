@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	. "github.com/Raytar/iago"
-	"github.com/Raytar/iago/iagotest"
+	. "github.com/relab/iago"
+	"github.com/relab/iago/iagotest"
 )
 
 func TestIago(t *testing.T) {

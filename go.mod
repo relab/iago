@@ -1,4 +1,4 @@
-module github.com/Raytar/iago
+module github.com/relab/iago
 
 go 1.16
 
