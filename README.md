@@ -13,6 +13,8 @@ but support for other connection methods can be added by implementing the `Host`
 ### Example
 
 The following example downloads a file from each remote host.
+This example uses the `iagotest` package, which spawns docker containers and connects to them with SSH for testing.
+The `iago.DialSSH` or `iago.NewSSHGroup` can be used to connect to existing SSH servers.
 
 ```go
 func TestIago(t *testing.T) {
@@ -33,3 +35,12 @@ func TestIago(t *testing.T) {
   }
 }
 ```
+
+## TODO
+
+* Improve the reading of `ssh_config` files
+  * Should support reading the public key files (it doesn't look like the `ssher` package supports this fully)
+* Prompt the user when verifying host keys?
+* Improve logging
+  * Logging for tasks as they are running
+  * Progress -- how many hosts have finished a task
