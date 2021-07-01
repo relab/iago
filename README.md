@@ -49,7 +49,7 @@ func TestIago(t *testing.T) {
       Mode: 0644,
     },
     OnError: iago.Panic,
-  }
+  })
 }
 ```
 
