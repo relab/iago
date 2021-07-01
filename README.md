@@ -7,8 +7,25 @@ Iago scripts are written in Go. This means that Iago scripts can be compiled int
 
 Iago executes *tasks* on *groups* of *hosts*.
 Tasks describe *actions* to be performed to each individual host, and how to handle errors.
+
+```go
+  // var g iago.Group; this is a set of iago.Host instances that the task will be applied to.
+  g.Run(iago.Task{
+    Name: "Example Task",
+    // Here we specify the iago.Func action, which is an action that executes the function that we give it.
+    // The function is executed concurrently for each host in the group.
+    Action: iago.Func(func(ctx context.Context, host iago.Host) error {
+      log.Println(host.Name())
+      return nil
+    }),
+    // The OnError handler decides how any errors returned by the actions should be handled.
+    // Any errors are automatically wrapped in a iago.TaskError before they are given to the handler.
+    OnError: iago.Panic,
+  })
+```
+
 We currently support connecting to remote hosts via SSH,
-but support for other connection methods can be added by implementing the `Host` interface.
+but support for other connection methods can be added by implementing the `iago.Host` interface.
 
 ### Example
 
