@@ -2,6 +2,7 @@ package iago
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path"
@@ -145,15 +146,24 @@ func (ca copyAction) copyDir(from, to fs.FS) error {
 	return nil
 }
 
-func copyFile(src, dest string, perm fs.FileMode, from fs.FS, to fs.FS) error {
+func copyFile(src, dest string, perm fs.FileMode, from fs.FS, to fs.FS) (err error) {
 	fromF, err := from.Open(src)
 	if err != nil {
 		return err
 	}
+	defer safeClose(fromF, &err, io.EOF)
+
 	toF, err := fs.OpenFile(to, dest, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
 	if err != nil {
 		return err
 	}
-	_, err = io.Copy(toF.(io.Writer), fromF)
+	defer safeClose(toF, &err, io.EOF)
+
+	writer, ok := toF.(io.Writer)
+	if !ok {
+		return fmt.Errorf("cannot write to %s: %v", dest, fs.ErrUnsupported)
+	}
+
+	_, err = io.Copy(writer, fromF)
 	return err
 }
