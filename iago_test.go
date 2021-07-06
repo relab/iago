@@ -15,6 +15,11 @@ import (
 
 func TestIago(t *testing.T) {
 	dir := t.TempDir()
+	wd, err := os.Getwd()
+
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	g := iagotest.CreateSSHGroup(t, 4)
 
@@ -42,6 +47,16 @@ func TestIago(t *testing.T) {
 	g.Run(Task{
 		Name:    "Read distribution name",
 		Action:  Shell{Command: "grep '^ID=' /etc/os-release > $HOME/os"},
+		OnError: errFunc,
+	})
+
+	g.Run(Task{
+		Name: "Upload a file",
+		Action: Upload{
+			Src:  P("LICENSE").RelativeTo(wd),
+			Dest: P("LICENSE").RelativeTo("$HOME"),
+			Mode: 0644,
+		},
 		OnError: errFunc,
 	})
 
