@@ -2,7 +2,6 @@ package iago
 
 import (
 	"context"
-	"fmt"
 	"io"
 
 	"go.uber.org/multierr"
@@ -24,22 +23,13 @@ type CmdRunner interface {
 // Shell runs a shell command.
 type Shell struct {
 	Command string
-	Shell   string
 	Stdin   io.Reader
 	Stdout  io.Writer
 	Stderr  io.Writer
 }
 
-func (sa *Shell) defaultValues() {
-	if sa.Shell == "" {
-		sa.Shell = "/bin/bash"
-	}
-}
-
 // Apply runs the shell command on the host.
 func (sa Shell) Apply(ctx context.Context, host Host) (err error) {
-	sa.defaultValues()
-
 	cmd, err := host.NewCommand()
 	if err != nil {
 		return err
@@ -87,7 +77,7 @@ func (sa Shell) Apply(ctx context.Context, host Host) (err error) {
 		goroutines++
 	}
 
-	err = cmd.RunContext(ctx, fmt.Sprintf("/bin/bash -c '%s'", sa.Command))
+	err = cmd.RunContext(ctx, sa.Command)
 	if err != nil && err != io.EOF {
 		return err
 	}
