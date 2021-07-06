@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"fmt"
 	"io"
 	"strings"
 
@@ -57,7 +56,7 @@ func NewSSHGroup(hosts []string, sshConfigPath string) (g Group, err error) {
 		if err != nil {
 			return nil, err
 		}
-		host, err := DialSSH(h, fmt.Sprintf("%s:22", addr), clientCfg)
+		host, err := DialSSH(h, addr, clientCfg)
 		if err != nil {
 			return nil, err
 		}
