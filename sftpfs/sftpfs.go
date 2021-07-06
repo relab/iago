@@ -155,6 +155,7 @@ func (wrapper *sftpFS) OpenFile(name string, flag int, perm fs.FileMode) (fs.Fil
 	// change the permissions of the created file since it is not done by sftp.OpenFile
 	err = file.Chmod(perm)
 	if err != nil {
+		_ = file.Close()
 		return nil, err
 	}
 	return file, nil
