@@ -136,7 +136,7 @@ func (wrapper *sftpFS) OpenFile(name string, flag int, perm fs.FileMode) (fs.Fil
 		return nil, err
 	}
 	create := false
-	fi, err := wrapper.Stat(full)
+	fi, err := wrapper.client.Stat(full)
 	if err == nil {
 		if fi.IsDir() {
 			return nil, &fs.PathError{Op: "open", Path: name, Err: syscall.EISDIR}
