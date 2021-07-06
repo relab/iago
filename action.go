@@ -108,9 +108,6 @@ func (ca copyAction) Apply(ctx context.Context, host Host) (err error) {
 		if err != nil {
 			return err
 		}
-		if err != nil {
-			return err
-		}
 	}
 
 	info, err := fs.Stat(from, ca.src.Path)
