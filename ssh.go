@@ -20,7 +20,7 @@ type sshHost struct {
 	env        map[string]string
 	client     *ssh.Client
 	sftpClient *sftp.Client
-	fs.FS
+	fsys       fs.FS
 }
 
 // DialSSH connects to a remote host using ssh.
@@ -105,6 +105,11 @@ func (h *sshHost) Address() string {
 // It returns the value, which will be empty if the variable is not present.
 func (h *sshHost) GetEnv(key string) string {
 	return h.env[key]
+}
+
+// GetFS returns the file system of the host.
+func (h *sshHost) GetFS() fs.FS {
+	return h.fsys
 }
 
 // Execute executes the given command and returns the output.

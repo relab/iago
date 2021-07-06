@@ -95,7 +95,7 @@ func (ca copyAction) Apply(ctx context.Context, host Host) (err error) {
 		to   fs.FS
 	)
 	if ca.fetch {
-		from, err = fs.Sub(host, ca.src.Prefix)
+		from, err = fs.Sub(host.GetFS(), ca.src.Prefix)
 		if err != nil {
 			return err
 		}
@@ -104,7 +104,7 @@ func (ca copyAction) Apply(ctx context.Context, host Host) (err error) {
 		ca.dest.Path = ca.dest.Path + "." + host.Name()
 	} else {
 		from = fs.DirFS("/" + ca.src.Prefix)
-		to, err = fs.Sub(host, ca.dest.Prefix)
+		to, err = fs.Sub(host.GetFS(), ca.dest.Prefix)
 		if err != nil {
 			return err
 		}

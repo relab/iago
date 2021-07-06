@@ -18,7 +18,6 @@ var DefaultTimeout = 30 * time.Second
 
 // Host is a connection to a remote host.
 type Host interface {
-	fs.FS
 
 	// Name returns the name of this host.
 	Name() string
@@ -29,6 +28,9 @@ type Host interface {
 	// GetEnv retrieves the value of the environment variable named by the key.
 	// It returns the value, which will be empty if the variable is not present.
 	GetEnv(key string) string
+
+	// GetFS returns the file system of the host.
+	GetFS() fs.FS
 
 	// NewCommand returns a new command runner.
 	NewCommand() (CmdRunner, error)
