@@ -25,7 +25,10 @@ func (fa funcAction) Apply(ctx context.Context, host Host) error {
 	return fa.f(ctx, host)
 }
 
-func cleanPath(path string) string {
+// CleanPath cleans a path and removes leading forward slashes.
+// io/fs only support relative paths, and by default,
+// all paths in iago are assumed to be relative to the root directory.
+func CleanPath(path string) string {
 	path = filepath.Clean(path)
 	path = strings.TrimPrefix(path, "/")
 	return path
@@ -39,22 +42,22 @@ type Path struct {
 
 // RelativeTo sets the prefix for this path.
 func (p Path) RelativeTo(path string) Path {
-	p.Prefix = cleanPath(path)
+	p.Prefix = CleanPath(path)
 	return p
 }
 
 // Expand expands environment variables in the path and prefix strings using the environment of the given host.
 func (p Path) Expand(h Host) Path {
 	return Path{
-		Path:   cleanPath(Expand(h, p.Path)),
-		Prefix: cleanPath(Expand(h, p.Prefix)),
+		Path:   CleanPath(Expand(h, p.Path)),
+		Prefix: CleanPath(Expand(h, p.Prefix)),
 	}
 }
 
 // P returns a path relative to the root directory.
 func P(path string) Path {
 	return Path{
-		Path:   cleanPath(path),
+		Path:   CleanPath(path),
 		Prefix: "",
 	}
 }
