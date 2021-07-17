@@ -21,6 +21,7 @@ type sshHost struct {
 	client     *ssh.Client
 	sftpClient *sftp.Client
 	fsys       fs.FS
+	vars       map[string]interface{}
 }
 
 // DialSSH connects to a remote host using ssh.
@@ -45,7 +46,7 @@ func DialSSH(name, addr string, cfg *ssh.ClientConfig) (Host, error) {
 		return nil, err
 	}
 
-	return &sshHost{name, env, client, sftpClient, sftpFS}, nil
+	return &sshHost{name, env, client, sftpClient, sftpFS, make(map[string]interface{})}, nil
 }
 
 // NewSSHGroup returns a new group from the given host aliases. sshConfigPath determines the ssh_config file to use.
@@ -155,6 +156,15 @@ func (h *sshHost) NewCommand() (CmdRunner, error) {
 // Close closes the connection to the host.
 func (h *sshHost) Close() error {
 	return multierr.Combine(h.sftpClient.Close(), h.client.Close())
+}
+
+func (h *sshHost) SetVar(key string, val interface{}) {
+	h.vars[key] = val
+}
+
+func (h *sshHost) GetVar(key string) (val interface{}, ok bool) {
+	val, ok = h.vars[key]
+	return
 }
 
 type sshCmd struct {

@@ -18,7 +18,6 @@ var DefaultTimeout = 30 * time.Second
 
 // Host is a connection to a remote host.
 type Host interface {
-
 	// Name returns the name of this host.
 	Name() string
 
@@ -37,11 +36,38 @@ type Host interface {
 
 	// Close closes the connection to the host.
 	Close() error
+
+	// SetVar sets a host variable with the given key and value
+	SetVar(key string, val interface{})
+
+	// GetVar gets the host variable with the given key.
+	// Returns (val, true) if the variable exists, (nil, false) otherwise.
+	GetVar(key string) (val interface{}, ok bool)
 }
 
 // Expand expands any environment variables in the string 's' using the environment of the host 'h'.
 func Expand(h Host, s string) string {
 	return os.Expand(s, h.GetEnv)
+}
+
+// GetStringVar gets a string variable from the host.
+func GetStringVar(host Host, key string) string {
+	val, ok := host.GetVar(key)
+	if ok {
+		s, _ := val.(string)
+		return s
+	}
+	return ""
+}
+
+// GetIntVar gets an integer variable from the host.
+func GetIntVar(host Host, key string) int {
+	val, ok := host.GetVar(key)
+	if ok {
+		i, _ := val.(int)
+		return i
+	}
+	return 0
 }
 
 // Group is a group of hosts.
