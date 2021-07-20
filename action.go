@@ -118,35 +118,37 @@ func (ca copyAction) Apply(ctx context.Context, host Host) (err error) {
 	}
 
 	if info.IsDir() {
+		dest := ca.dest.Path
 		if ca.fetch {
 			// since we might be copying from multiple hosts, we will create a subdirectory in the destination folder
-			ca.dest.Path += "/" + host.Name()
+			dest += "/" + host.Name()
 		}
-		return ca.copyDir(from, to)
+		return copyDir(ca.src.Path, dest, ca.mode, from, to)
 	}
+	dest := ca.dest.Path
 	if ca.fetch {
 		// since we might be copying from multiple hosts, we will prefix the filename with the host's name.
-		ca.dest.Path += "." + host.Name()
+		dest += "." + host.Name()
 	}
-	return copyFile(ca.src.Path, ca.dest.Path, ca.mode, from, to)
+	return copyFile(ca.src.Path, dest, ca.mode, from, to)
 }
 
-func (ca copyAction) copyDir(from, to fs.FS) error {
-	files, err := fs.ReadDir(from, ca.src.Path)
+func copyDir(src, dest string, mode fs.FileMode, from, to fs.FS) error {
+	files, err := fs.ReadDir(from, src)
 	if err != nil {
 		return err
 	}
 
-	err = fs.MkdirAll(to, ca.dest.Path, ca.mode)
+	err = fs.MkdirAll(to, dest, mode)
 	if err != nil {
 		return err
 	}
 
 	for _, info := range files {
 		if info.IsDir() {
-			err = ca.copyDir(from, to)
+			err = copyDir(path.Join(src, info.Name()), path.Join(dest, info.Name()), mode, from, to)
 		} else {
-			err = copyFile(path.Join(ca.src.Path, info.Name()), ca.dest.Path, ca.mode, from, to)
+			err = copyFile(path.Join(src, info.Name()), dest, mode, from, to)
 		}
 		if err != nil {
 			return err
