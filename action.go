@@ -148,7 +148,7 @@ func copyDir(src, dest string, mode fs.FileMode, from, to fs.FS) error {
 		if info.IsDir() {
 			err = copyDir(path.Join(src, info.Name()), path.Join(dest, info.Name()), mode, from, to)
 		} else {
-			err = copyFile(path.Join(src, info.Name()), dest, mode, from, to)
+			err = copyFile(path.Join(src, info.Name()), path.Join(dest, info.Name()), mode, from, to)
 		}
 		if err != nil {
 			return err
