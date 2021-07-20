@@ -118,12 +118,16 @@ func (ca copyAction) Apply(ctx context.Context, host Host) (err error) {
 	}
 
 	if info.IsDir() {
-		// since we might be copying from multiple hosts, we will create a subdirectory in the destination folder
-		ca.dest.Path += "/" + host.Name()
+		if ca.fetch {
+			// since we might be copying from multiple hosts, we will create a subdirectory in the destination folder
+			ca.dest.Path += "/" + host.Name()
+		}
 		return ca.copyDir(from, to)
 	}
-	// since we might be copying from multiple hosts, we will prefix the filename with the host's name.
-	ca.dest.Path += "." + host.Name()
+	if ca.fetch {
+		// since we might be copying from multiple hosts, we will prefix the filename with the host's name.
+		ca.dest.Path += "." + host.Name()
+	}
 	return copyFile(ca.src.Path, ca.dest.Path, ca.mode, from, to)
 }
 
