@@ -55,7 +55,6 @@ func TestIago(t *testing.T) {
 		Action: Upload{
 			Src:  P("LICENSE").RelativeTo(wd),
 			Dest: P("LICENSE").RelativeTo("$HOME"),
-			Mode: 0644,
 		},
 		OnError: errFunc,
 	})
@@ -65,7 +64,6 @@ func TestIago(t *testing.T) {
 		Action: Download{
 			Src:  P("os").RelativeTo("$HOME"),
 			Dest: P("os").RelativeTo(dir),
-			Mode: 0644,
 		},
 		OnError: errFunc,
 	})
