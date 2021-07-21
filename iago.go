@@ -126,6 +126,19 @@ type Action interface {
 	Apply(ctx context.Context, host Host) error
 }
 
+// Do returns an action that runs the function f.
+func Do(f func(ctx context.Context, host Host) (err error)) Action {
+	return funcAction{f}
+}
+
+type funcAction struct {
+	f func(context.Context, Host) error
+}
+
+func (fa funcAction) Apply(ctx context.Context, host Host) error {
+	return fa.f(ctx, host)
+}
+
 // ErrorHandler is a function that handles errors from actions.
 type ErrorHandler func(error)
 

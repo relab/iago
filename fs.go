@@ -12,19 +12,6 @@ import (
 	fs "github.com/relab/wrfs"
 )
 
-// Func returns an action that runs the function f.
-func Func(f func(ctx context.Context, host Host) (err error)) Action {
-	return funcAction{f}
-}
-
-type funcAction struct {
-	f func(context.Context, Host) error
-}
-
-func (fa funcAction) Apply(ctx context.Context, host Host) error {
-	return fa.f(ctx, host)
-}
-
 // CleanPath cleans a path and removes leading forward slashes.
 // io/fs only support relative paths, and by default,
 // all paths in iago are assumed to be relative to the root directory.

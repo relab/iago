@@ -29,7 +29,7 @@ func TestIago(t *testing.T) {
 
 	g.Run(Task{
 		Name: "Custom Shell Command",
-		Action: Func(func(ctx context.Context, host Host) (err error) {
+		Action: Do(func(ctx context.Context, host Host) (err error) {
 			var sb strings.Builder
 			err = Shell{
 				Command: "whoami",
@@ -72,7 +72,7 @@ func TestIago(t *testing.T) {
 
 	g.Run(Task{
 		Name: "Custom Func",
-		Action: Func(func(ctx context.Context, host Host) (err error) {
+		Action: Do(func(ctx context.Context, host Host) (err error) {
 			t.Log(host.GetEnv("HOME"))
 			return nil
 		}),
@@ -81,7 +81,7 @@ func TestIago(t *testing.T) {
 
 	g.Run(Task{
 		Name:    "Should Error",
-		Action:  Func(func(ctx context.Context, host Host) (err error) { return errors.New("something happened") }),
+		Action:  Do(func(ctx context.Context, host Host) (err error) { return errors.New("something happened") }),
 		OnError: func(e error) { t.Log(e) },
 	})
 
