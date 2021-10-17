@@ -11,15 +11,16 @@ import (
 	"io"
 	"net"
 	"os"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/network"
+
+	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
-	"github.com/moby/moby/client"
 	"github.com/relab/iago"
 	"golang.org/x/crypto/ssh"
 )
@@ -38,26 +39,13 @@ func CreateSSHGroup(t *testing.T, n int) (g iago.Group) {
 	signer, pub := generateKey(t)
 
 	cli := createClient(t)
-	images, err := cli.ImageList(context.Background(), types.ImageListOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
 
-	haveImage := false
-	for _, image := range images {
-		for _, repoTag := range image.RepoTags {
-			if strings.Contains(repoTag, tag) {
-				haveImage = true
-			}
-		}
-	}
-
-	if !haveImage {
-		buildImage(t, cli)
-	}
+	buildImage(t, cli)
 
 	containers := make([]string, 0, n)
 	ports := getFreePorts(t, n)
+
+	network := createNetwork(t, cli)
 
 	t.Cleanup(func() {
 		err := g.Close()
@@ -67,18 +55,26 @@ func CreateSSHGroup(t *testing.T, n int) (g iago.Group) {
 		for _, container := range containers {
 			err := cli.ContainerRemove(context.Background(), container, types.ContainerRemoveOptions{Force: true})
 			if err != nil {
-				t.Log(err)
+				t.Error(err)
 			}
+		}
+		err = cli.NetworkRemove(context.Background(), network)
+		if err != nil {
+			t.Error(err)
 		}
 	})
 
 	for i := 0; i < n; i++ {
 		port := fmt.Sprintf("%d", ports.next())
-		containers = append(containers, createContainer(t, cli, pub, port))
-		var host iago.Host
+		id := createContainer(t, cli, network, pub, port)
+		containers = append(containers, id)
+		var (
+			host iago.Host
+			err  error
+		)
 
 		for j := 0; j < 10; j++ {
-			host, err = iago.DialSSH(strconv.Itoa(i), "localhost:"+port, &ssh.ClientConfig{
+			host, err = iago.DialSSH(id, "localhost:"+port, &ssh.ClientConfig{
 				User:            "root",
 				Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
 				HostKeyCallback: ssh.InsecureIgnoreHostKey(),
@@ -141,7 +137,7 @@ func buildImage(t *testing.T, cli *client.Client) {
 	}
 }
 
-func createContainer(t *testing.T, cli *client.Client, pubKey, port string) string {
+func createContainer(t *testing.T, cli *client.Client, networkID, pubKey, port string) string {
 	res, err := cli.ContainerCreate(context.Background(), &container.Config{
 		Env:   []string{"AUTHORIZED_KEYS=" + pubKey},
 		Image: tag,
@@ -155,9 +151,30 @@ func createContainer(t *testing.T, cli *client.Client, pubKey, port string) stri
 	if err != nil {
 		t.Fatal(err)
 	}
+	details, err := cli.ContainerInspect(context.Background(), res.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := strings.TrimPrefix(details.Name, "/")
+	err = cli.NetworkConnect(context.Background(), networkID, res.ID, &network.EndpointSettings{
+		Aliases: []string{name},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	err = cli.ContainerStart(context.Background(), res.ID, types.ContainerStartOptions{})
 	if err != nil {
 		t.Fatal(err)
+	}
+	return name
+}
+
+func createNetwork(t *testing.T, cli *client.Client) string {
+	res, err := cli.NetworkCreate(context.Background(), tag, types.NetworkCreate{
+		Driver: "bridge",
+	})
+	if err != nil {
+		t.Fatal("failed to create network: ", err)
 	}
 	return res.ID
 }

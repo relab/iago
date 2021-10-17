@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -32,7 +31,7 @@ func TestIago(t *testing.T) {
 		Action: Do(func(ctx context.Context, host Host) (err error) {
 			var sb strings.Builder
 			err = Shell{
-				Command: "whoami",
+				Command: "lsb_release -a",
 				Stdout:  &sb,
 			}.Apply(ctx, host)
 			if err != nil {
@@ -84,7 +83,7 @@ func TestIago(t *testing.T) {
 	})
 
 	for i := range g {
-		f, err := os.ReadFile(filepath.Join(dir, "os."+strconv.Itoa(i)))
+		f, err := os.ReadFile(filepath.Join(dir, "os."+g[i].Name()))
 		if err != nil {
 			t.Fatal(err)
 		}
