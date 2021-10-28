@@ -9,6 +9,7 @@ import (
 	_ "embed"
 	"fmt"
 	"io"
+	mrand "math/rand"
 	"net"
 	"os"
 	"strings"
@@ -32,7 +33,13 @@ var (
 	dockerfile []byte
 	//go:embed entrypoint.sh
 	entrypoint []byte
+
+	rnd *mrand.Rand
 )
+
+func init() {
+	rnd = mrand.New(mrand.NewSource(time.Now().Unix()))
+}
 
 // CreateSSHGroup starts n docker containers and connects to them with ssh.
 func CreateSSHGroup(t *testing.T, n int) (g iago.Group) {
@@ -170,7 +177,7 @@ func createContainer(t *testing.T, cli *client.Client, networkID, pubKey, port s
 }
 
 func createNetwork(t *testing.T, cli *client.Client) string {
-	res, err := cli.NetworkCreate(context.Background(), tag, types.NetworkCreate{
+	res, err := cli.NetworkCreate(context.Background(), "iago-"+randString(8), types.NetworkCreate{
 		Driver: "bridge",
 	})
 	if err != nil {
@@ -240,4 +247,13 @@ func prepareBuildContext() (r io.ReadCloser, err error) {
 		return nil, err
 	}
 	return io.NopCloser(&buf), nil
+}
+
+func randString(n int) string {
+	var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+	s := make([]rune, n)
+	for i := range s {
+		s[i] = letters[rnd.Intn(len(letters))]
+	}
+	return string(s)
 }
