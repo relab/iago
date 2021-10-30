@@ -52,8 +52,8 @@ func TestIago(t *testing.T) {
 	g.Run(Task{
 		Name: "Upload a file",
 		Action: Upload{
-			Src:  filepath.Join(wd, "LICENSE"),
-			Dest: "$HOME/LICENSE",
+			Src:  P("LICENSE").RelativeTo(wd),
+			Dest: P("LICENSE").RelativeTo("$HOME"),
 		},
 		OnError: errFunc,
 	})
@@ -61,8 +61,8 @@ func TestIago(t *testing.T) {
 	g.Run(Task{
 		Name: "Download files",
 		Action: Download{
-			Src:  "$HOME/LICENSE",
-			Dest: filepath.Join(dir, "os"),
+			Src:  P("os").RelativeTo("$HOME"),
+			Dest: P("os").RelativeTo(dir),
 		},
 		OnError: errFunc,
 	})

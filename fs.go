@@ -12,11 +12,41 @@ import (
 	fs "github.com/relab/wrfs"
 )
 
-func getPrefix(path string) string {
-	var sb strings.Builder
-	sb.WriteString(filepath.VolumeName(path))
-	sb.WriteRune(os.PathSeparator)
-	return sb.String()
+// CleanPath cleans a path and removes leading forward slashes.
+// io/fs only support relative paths, and by default,
+// all paths in iago are assumed to be relative to the root directory.
+func CleanPath(path string) string {
+	path = filepath.Clean(path)
+	path = strings.TrimPrefix(path, "/")
+	return path
+}
+
+// Path is a path to a file or directory, relative to the prefix.
+type Path struct {
+	Path   string
+	Prefix string
+}
+
+// RelativeTo sets the prefix for this path.
+func (p Path) RelativeTo(path string) Path {
+	p.Prefix = CleanPath(path)
+	return p
+}
+
+// Expand expands environment variables in the path and prefix strings using the environment of the given host.
+func (p Path) Expand(h Host) Path {
+	return Path{
+		Path:   CleanPath(Expand(h, p.Path)),
+		Prefix: CleanPath(Expand(h, p.Prefix)),
+	}
+}
+
+// P returns a path relative to the root directory.
+func P(path string) Path {
+	return Path{
+		Path:   CleanPath(path),
+		Prefix: "",
+	}
 }
 
 // Perm describes the permissions that should be used when creating files or directories.
@@ -69,31 +99,31 @@ func (p Perm) GetDirPerm() fs.FileMode {
 
 // Upload uploads a file or directory to a remote host.
 type Upload struct {
-	Src  string
-	Dest string
+	Src  Path
+	Dest Path
 	Perm Perm
 }
 
 // Apply performs the upload.
 func (u Upload) Apply(ctx context.Context, host Host) error {
-	return copyAction{src: u.Src, dest: Expand(host, u.Dest), perm: u.Perm, fetch: false}.Apply(ctx, host)
+	return copyAction{src: u.Src.Expand(host), dest: u.Dest.Expand(host), perm: u.Perm, fetch: false}.Apply(ctx, host)
 }
 
 // Download downloads a file or directory from a remote host.
 type Download struct {
-	Src  string
-	Dest string
+	Src  Path
+	Dest Path
 	Perm Perm
 }
 
 // Apply performs the download.
 func (d Download) Apply(ctx context.Context, host Host) error {
-	return copyAction{src: Expand(host, d.Src), dest: d.Dest, perm: d.Perm, fetch: true}.Apply(ctx, host)
+	return copyAction{src: d.Src.Expand(host), dest: d.Dest.Expand(host), perm: d.Perm, fetch: true}.Apply(ctx, host)
 }
 
 type copyAction struct {
-	src   string
-	dest  string
+	src   Path
+	dest  Path
 	fetch bool
 	perm  Perm
 }
@@ -103,49 +133,39 @@ func (ca copyAction) Apply(ctx context.Context, host Host) (err error) {
 		from fs.FS
 		to   fs.FS
 	)
-
-	srcPrefix := getPrefix(ca.src)
-	destPrefix := getPrefix(ca.dest)
-
-	src, err := filepath.Rel(srcPrefix, ca.src)
-	if err != nil {
-		return err
-	}
-
-	dest, err := filepath.Rel(destPrefix, ca.dest)
-	if err != nil {
-		return err
-	}
-
 	if ca.fetch {
-		from = host.GetFS()
-		to = fs.DirFS(destPrefix)
-		// ensure the correct type of slashes
-		src = filepath.ToSlash(src)
+		from, err = fs.Sub(host.GetFS(), ca.src.Prefix)
+		if err != nil {
+			return err
+		}
+		to = fs.DirFS("/" + ca.dest.Prefix)
 	} else {
-		from = fs.DirFS(srcPrefix)
-		to = host.GetFS()
-		// ensure the correct type of slashes
-		dest = filepath.ToSlash(dest)
+		from = fs.DirFS("/" + ca.src.Prefix)
+		to, err = fs.Sub(host.GetFS(), ca.dest.Prefix)
+		if err != nil {
+			return err
+		}
 	}
 
-	info, err := fs.Stat(from, src)
+	info, err := fs.Stat(from, ca.src.Path)
 	if err != nil {
 		return err
 	}
 
 	if info.IsDir() {
+		dest := ca.dest.Path
 		if ca.fetch {
 			// since we might be copying from multiple hosts, we will create a subdirectory in the destination folder
 			dest += "/" + host.Name()
 		}
-		return copyDir(src, dest, ca.perm, from, to)
+		return copyDir(ca.src.Path, dest, ca.perm, from, to)
 	}
+	dest := ca.dest.Path
 	if ca.fetch {
 		// since we might be copying from multiple hosts, we will prefix the filename with the host's name.
 		dest += "." + host.Name()
 	}
-	return copyFile(src, dest, ca.perm, from, to)
+	return copyFile(ca.src.Path, dest, ca.perm, from, to)
 }
 
 func copyDir(src, dest string, perm Perm, from, to fs.FS) error {
