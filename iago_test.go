@@ -2,7 +2,6 @@ package iago_test
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,13 +21,13 @@ func TestIago(t *testing.T) {
 
 	g := iagotest.CreateSSHGroup(t, 4)
 
-	errFunc := func(e error) {
+	g.ErrorHandler = func(e error) {
 		t.Fatal(e)
 	}
 
-	g.Run(Task{
-		Name: "Custom Shell Command",
-		Action: Do(func(ctx context.Context, host Host) (err error) {
+	g.Run(
+		"Custom Shell Command",
+		func(ctx context.Context, host Host) (err error) {
 			var sb strings.Builder
 			err = Shell{
 				Command: "lsb_release -a",
@@ -39,51 +38,42 @@ func TestIago(t *testing.T) {
 			}
 			t.Log(sb.String())
 			return nil
-		}),
-		OnError: errFunc,
+		})
+
+	g.Run("Read distribution name", Shell{Command: "grep '^ID=' /etc/os-release > $HOME/os"}.Apply)
+
+	g.Run("Upload a file", func(ctx context.Context, host Host) error {
+		src, err := NewPath(wd, "LICENSE")
+		if err != nil {
+			return err
+		}
+		dest, err := NewPath(Expand(host, "$HOME"), "LICENSE")
+		if err != nil {
+			return err
+		}
+		return Upload{
+			Src:  src,
+			Dest: dest,
+		}.Apply(ctx, host)
 	})
 
-	g.Run(Task{
-		Name:    "Read distribution name",
-		Action:  Shell{Command: "grep '^ID=' /etc/os-release > $HOME/os"},
-		OnError: errFunc,
+	g.Run("Download files", func(ctx context.Context, host Host) error {
+		src, err := NewPath(Expand(host, "$HOME"), "os")
+		if err != nil {
+			return err
+		}
+		dest, err := NewPath(dir, "os")
+		if err != nil {
+			return err
+		}
+		return Download{
+			Src:  src,
+			Dest: dest,
+		}.Apply(ctx, host)
 	})
 
-	g.Run(Task{
-		Name: "Upload a file",
-		Action: Upload{
-			Src:  P("LICENSE").RelativeTo(wd),
-			Dest: P("LICENSE").RelativeTo("$HOME"),
-		},
-		OnError: errFunc,
-	})
-
-	g.Run(Task{
-		Name: "Download files",
-		Action: Download{
-			Src:  P("os").RelativeTo("$HOME"),
-			Dest: P("os").RelativeTo(dir),
-		},
-		OnError: errFunc,
-	})
-
-	g.Run(Task{
-		Name: "Custom Func",
-		Action: Do(func(ctx context.Context, host Host) (err error) {
-			t.Log(host.GetEnv("HOME"))
-			return nil
-		}),
-		OnError: errFunc,
-	})
-
-	g.Run(Task{
-		Name:    "Should Error",
-		Action:  Do(func(ctx context.Context, host Host) (err error) { return errors.New("something happened") }),
-		OnError: func(e error) { t.Log(e) },
-	})
-
-	for i := range g {
-		f, err := os.ReadFile(filepath.Join(dir, "os."+g[i].Name()))
+	for i := range g.Hosts {
+		f, err := os.ReadFile(filepath.Join(dir, "os."+g.Hosts[i].Name()))
 		if err != nil {
 			t.Fatal(err)
 		}

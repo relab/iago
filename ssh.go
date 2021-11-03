@@ -51,19 +51,20 @@ func DialSSH(name, addr string, cfg *ssh.ClientConfig) (Host, error) {
 
 // NewSSHGroup returns a new group from the given host aliases. sshConfigPath determines the ssh_config file to use.
 // If sshConfigPath is empty, the default configuration files will be used.
-func NewSSHGroup(hosts []string, sshConfigPath string) (g Group, err error) {
-	for _, h := range hosts {
+func NewSSHGroup(hostNames []string, sshConfigPath string) (g Group, err error) {
+	hosts := make([]Host, 0, len(hostNames))
+	for _, h := range hostNames {
 		clientCfg, addr, err := ssher.ClientConfig(h, sshConfigPath)
 		if err != nil {
-			return nil, err
+			return Group{}, err
 		}
 		host, err := DialSSH(h, addr, clientCfg)
 		if err != nil {
-			return nil, err
+			return Group{}, err
 		}
-		g = append(g, host)
+		hosts = append(hosts, host)
 	}
-	return g, nil
+	return NewGroup(hosts), nil
 }
 
 // fetchEnv returns a map containing the environment variables of the ssh server.

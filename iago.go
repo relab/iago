@@ -71,72 +71,48 @@ func GetIntVar(host Host, key string) int {
 }
 
 // Group is a group of hosts.
-type Group []Host
+type Group struct {
+	Hosts        []Host
+	ErrorHandler ErrorHandler
+	Timeout      time.Duration
+}
+
+// NewGroup returns a new Group consisting of the given hosts.
+func NewGroup(hosts []Host) Group {
+	return Group{
+		Hosts:        hosts,
+		ErrorHandler: Panic,
+		Timeout:      DefaultTimeout,
+	}
+}
 
 // Run runs the task on all hosts in the group concurrently.
-func (g Group) Run(task Task) {
-	task.SetDefaults()
+func (g Group) Run(name string, f func(ctx context.Context, host Host) error) {
 
-	ctx, cancel := context.WithTimeout(context.Background(), task.Timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), g.Timeout)
 	defer cancel()
 
 	errors := make(chan error)
-	for _, h := range g {
+	for _, h := range g.Hosts {
 		go func(h Host) {
-			errors <- wrapError(h.Name(), task.Name, task.Action.Apply(ctx, h))
+			errors <- wrapError(h.Name(), name, f(ctx, h))
 		}(h)
 	}
-	for range g {
+
+	for range g.Hosts {
 		err := <-errors
 		if err != nil {
-			task.OnError(err)
+			g.ErrorHandler(err)
 		}
 	}
 }
 
 // Close closes any connections to hosts.
 func (g Group) Close() (err error) {
-	for _, h := range g {
+	for _, h := range g.Hosts {
 		err = multierr.Append(err, h.Close())
 	}
 	return err
-}
-
-// Task describes an action to be performed on a host.
-type Task struct {
-	Name    string
-	Action  Action
-	OnError ErrorHandler
-	Timeout time.Duration
-}
-
-// SetDefaults sets the default values for the task.
-func (t *Task) SetDefaults() {
-	if t.OnError == nil {
-		t.OnError = Panic
-	}
-	if t.Timeout == 0 {
-		t.Timeout = DefaultTimeout
-	}
-}
-
-// Action is an interface for applying changes to a host.
-// Tasks execute actions by running the Apply function.
-type Action interface {
-	Apply(ctx context.Context, host Host) error
-}
-
-// Do returns an action that runs the function f.
-func Do(f func(ctx context.Context, host Host) (err error)) Action {
-	return funcAction{f}
-}
-
-type funcAction struct {
-	f func(context.Context, Host) error
-}
-
-func (fa funcAction) Apply(ctx context.Context, host Host) error {
-	return fa.f(ctx, host)
 }
 
 // ErrorHandler is a function that handles errors from actions.

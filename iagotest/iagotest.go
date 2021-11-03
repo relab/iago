@@ -71,6 +71,8 @@ func CreateSSHGroup(t *testing.T, n int) (g iago.Group) {
 		}
 	})
 
+	var hosts []iago.Host
+
 	for i := 0; i < n; i++ {
 		port := fmt.Sprintf("%d", ports.next())
 		id := createContainer(t, cli, network, pub, port)
@@ -94,10 +96,10 @@ func CreateSSHGroup(t *testing.T, n int) (g iago.Group) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		g = append(g, host)
+		hosts = append(hosts, host)
 	}
 
-	return g
+	return iago.NewGroup(hosts)
 }
 
 func generateKey(t *testing.T) (ssh.Signer, string) {

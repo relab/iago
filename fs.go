@@ -2,6 +2,7 @@ package iago
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,40 +13,72 @@ import (
 	fs "github.com/relab/wrfs"
 )
 
-// CleanPath cleans a path and removes leading forward slashes.
-// io/fs only support relative paths, and by default,
-// all paths in iago are assumed to be relative to the root directory.
-func CleanPath(path string) string {
-	path = filepath.Clean(path)
-	path = strings.TrimPrefix(path, "/")
-	return path
-}
+var (
+	// ErrNotAbsolute is returned when a path is relative, but was expected to be absolute.
+	ErrNotAbsolute = errors.New("not an absolute path")
+	// ErrNotRelative is returned when a path is absolute, but was expected to be relative.
+	ErrNotRelative = errors.New("not a relative path")
+)
 
 // Path is a path to a file or directory, relative to the prefix.
 type Path struct {
-	Path   string
-	Prefix string
+	prefix string
+	path   string
 }
 
-// RelativeTo sets the prefix for this path.
-func (p Path) RelativeTo(path string) Path {
-	p.Prefix = CleanPath(path)
-	return p
+func isAbs(path string) bool {
+	path = filepath.ToSlash(path)
+	if strings.HasPrefix(path, "/") {
+		return true
+	}
+	l := len(filepath.VolumeName(path))
+	if l == 0 {
+		return false
+	}
+	path = path[l:]
+	if path == "" {
+		return false
+	}
+	return path[0] == '/'
+}
+
+func removeSlash(path string) string {
+	return strings.TrimPrefix(path, "/")
+}
+
+// NewPath returns a new Path struct. prefix must be an absolute path,
+// and path must be relative to the prefix.
+func NewPath(prefix, path string) (p Path, err error) {
+	if !isAbs(prefix) {
+		return Path{}, fmt.Errorf("'%s': %w", prefix, ErrNotAbsolute)
+	}
+	if isAbs(path) {
+		return Path{}, fmt.Errorf("'%s': %w", path, ErrNotRelative)
+	}
+	return Path{prefix: CleanPath(prefix), path: CleanPath(path)}, nil
+}
+
+// NewPathFromAbs returns a new Path struct from an absolute path.
+func NewPathFromAbs(path string) (p Path, err error) {
+	if !isAbs(path) {
+		return Path{}, ErrNotAbsolute
+	}
+	p.prefix = filepath.ToSlash(filepath.VolumeName(path)) + "/"
+	p.path = strings.TrimPrefix(filepath.ToSlash(path), p.prefix)
+	return p, nil
+}
+
+// CleanPath cleans the path and converts it to slashes.
+func CleanPath(path string) string {
+	// on windows, filepath.Clean will replace slashes with Separator, so we need to call ToSlash afterwards.
+	return filepath.ToSlash(filepath.Clean(path))
 }
 
 // Expand expands environment variables in the path and prefix strings using the environment of the given host.
 func (p Path) Expand(h Host) Path {
 	return Path{
-		Path:   CleanPath(Expand(h, p.Path)),
-		Prefix: CleanPath(Expand(h, p.Prefix)),
-	}
-}
-
-// P returns a path relative to the root directory.
-func P(path string) Path {
-	return Path{
-		Path:   CleanPath(path),
-		Prefix: "",
+		path:   CleanPath(Expand(h, p.path)),
+		prefix: CleanPath(Expand(h, p.prefix)),
 	}
 }
 
@@ -106,7 +139,7 @@ type Upload struct {
 
 // Apply performs the upload.
 func (u Upload) Apply(ctx context.Context, host Host) error {
-	return copyAction{src: u.Src.Expand(host), dest: u.Dest.Expand(host), perm: u.Perm, fetch: false}.Apply(ctx, host)
+	return copyAction{src: u.Src, dest: u.Dest, perm: u.Perm, fetch: false}.Apply(ctx, host)
 }
 
 // Download downloads a file or directory from a remote host.
@@ -118,7 +151,7 @@ type Download struct {
 
 // Apply performs the download.
 func (d Download) Apply(ctx context.Context, host Host) error {
-	return copyAction{src: d.Src.Expand(host), dest: d.Dest.Expand(host), perm: d.Perm, fetch: true}.Apply(ctx, host)
+	return copyAction{src: d.Src, dest: d.Dest, perm: d.Perm, fetch: true}.Apply(ctx, host)
 }
 
 type copyAction struct {
@@ -134,38 +167,38 @@ func (ca copyAction) Apply(ctx context.Context, host Host) (err error) {
 		to   fs.FS
 	)
 	if ca.fetch {
-		from, err = fs.Sub(host.GetFS(), ca.src.Prefix)
+		from, err = fs.Sub(host.GetFS(), removeSlash(ca.src.prefix))
 		if err != nil {
 			return err
 		}
-		to = fs.DirFS("/" + ca.dest.Prefix)
+		to = fs.DirFS(ca.dest.prefix)
 	} else {
-		from = fs.DirFS("/" + ca.src.Prefix)
-		to, err = fs.Sub(host.GetFS(), ca.dest.Prefix)
+		from = fs.DirFS(ca.src.prefix)
+		to, err = fs.Sub(host.GetFS(), removeSlash(ca.dest.prefix))
 		if err != nil {
 			return err
 		}
 	}
 
-	info, err := fs.Stat(from, ca.src.Path)
+	info, err := fs.Stat(from, ca.src.path)
 	if err != nil {
 		return err
 	}
 
 	if info.IsDir() {
-		dest := ca.dest.Path
+		dest := ca.dest.path
 		if ca.fetch {
 			// since we might be copying from multiple hosts, we will create a subdirectory in the destination folder
 			dest += "/" + host.Name()
 		}
-		return copyDir(ca.src.Path, dest, ca.perm, from, to)
+		return copyDir(ca.src.path, dest, ca.perm, from, to)
 	}
-	dest := ca.dest.Path
+	dest := ca.dest.path
 	if ca.fetch {
 		// since we might be copying from multiple hosts, we will prefix the filename with the host's name.
 		dest += "." + host.Name()
 	}
-	return copyFile(ca.src.Path, dest, ca.perm, from, to)
+	return copyFile(ca.src.path, dest, ca.perm, from, to)
 }
 
 func copyDir(src, dest string, perm Perm, from, to fs.FS) error {
