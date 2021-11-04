@@ -26,6 +26,10 @@ type Path struct {
 	path   string
 }
 
+func (p Path) String() string {
+	return p.prefix + p.path
+}
+
 func isAbs(path string) bool {
 	path = filepath.ToSlash(path)
 	if strings.HasPrefix(path, "/") {
@@ -72,14 +76,6 @@ func NewPathFromAbs(path string) (p Path, err error) {
 func CleanPath(path string) string {
 	// on windows, filepath.Clean will replace slashes with Separator, so we need to call ToSlash afterwards.
 	return filepath.ToSlash(filepath.Clean(path))
-}
-
-// Expand expands environment variables in the path and prefix strings using the environment of the given host.
-func (p Path) Expand(h Host) Path {
-	return Path{
-		path:   CleanPath(Expand(h, p.path)),
-		prefix: CleanPath(Expand(h, p.prefix)),
-	}
 }
 
 // Perm describes the permissions that should be used when creating files or directories.
