@@ -19,7 +19,7 @@ func TestIago(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	g := iagotest.CreateSSHGroup(t, 4)
+	g := iagotest.CreateSSHGroup(t, 4, false)
 
 	g.ErrorHandler = func(e error) {
 		t.Fatal(e)

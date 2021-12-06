@@ -42,10 +42,20 @@ func init() {
 }
 
 // CreateSSHGroup starts n docker containers and connects to them with ssh.
-func CreateSSHGroup(t *testing.T, n int) (g iago.Group) {
+// If skip is true, this function will call t.Skip() if docker is unavailable.
+func CreateSSHGroup(t *testing.T, n int, skip bool) (g iago.Group) {
 	signer, pub := generateKey(t)
 
 	cli := createClient(t)
+
+	// test connection
+	_, err := cli.Ping(context.Background())
+	if err != nil {
+		if skip && client.IsErrConnectionFailed(err) {
+			t.Skip("could not connect to docker daemon")
+		}
+		t.Fatal(err)
+	}
 
 	buildImage(t, cli)
 
