@@ -10,7 +10,7 @@ require (
 	github.com/kevinburke/ssh_config v1.1.0 // indirect
 	github.com/morikuni/aec v1.0.0 // indirect
 	github.com/pkg/sftp v1.13.4
-	github.com/relab/wrfs v0.0.0-20210628111300-b51570396aec
+	github.com/relab/wrfs v0.0.0-20220416082020-a641cd350078
 	go.uber.org/multierr v1.7.0
 	golang.org/x/crypto v0.0.0-20210921155107-089bfa567519
 )
