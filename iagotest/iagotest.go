@@ -69,14 +69,12 @@ func CreateSSHGroup(t *testing.T, n int, skip bool) (g iago.Group) {
 		if err != nil {
 			t.Error(err)
 		}
-		for _, container := range containers {
-			err := cli.ContainerRemove(context.Background(), container, types.ContainerRemoveOptions{Force: true})
-			if err != nil {
+		for _, containerID := range containers {
+			if err := cli.ContainerRemove(context.Background(), containerID, container.RemoveOptions{}); err != nil {
 				t.Error(err)
 			}
 		}
-		err = cli.NetworkRemove(context.Background(), network)
-		if err != nil {
+		if err = cli.NetworkRemove(context.Background(), network); err != nil {
 			t.Error(err)
 		}
 	})
@@ -125,7 +123,10 @@ func generateKey(t *testing.T) (ssh.Signer, string) {
 }
 
 func createClient(t *testing.T) *client.Client {
-	cli, err := client.NewClientWithOpts(client.FromEnv)
+	cli, err := client.NewClientWithOpts(
+		client.FromEnv,
+		client.WithAPIVersionNegotiation(),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,8 +151,7 @@ func buildImage(t *testing.T, cli *client.Client) {
 			t.Error(err)
 		}
 	}()
-	_, err = io.Copy(os.Stdout, res.Body)
-	if err != nil {
+	if _, err = io.Copy(os.Stdout, res.Body); err != nil {
 		t.Error(err)
 	}
 }
@@ -181,8 +181,7 @@ func createContainer(t *testing.T, cli *client.Client, networkID, pubKey, port s
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = cli.ContainerStart(context.Background(), res.ID, types.ContainerStartOptions{})
-	if err != nil {
+	if err = cli.ContainerStart(context.Background(), res.ID, container.StartOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	return name
@@ -227,34 +226,34 @@ func getFreePorts(t *testing.T, n int) ports {
 
 func prepareBuildContext() (r io.ReadCloser, err error) {
 	var buf bytes.Buffer
-	tarw := tar.NewWriter(&buf)
+	tarWriter := tar.NewWriter(&buf)
 
-	err = tarw.WriteHeader(&tar.Header{
+	err = tarWriter.WriteHeader(&tar.Header{
 		Name:   "Dockerfile",
 		Size:   int64(len(dockerfile)),
-		Mode:   0644,
+		Mode:   0o644,
 		Format: tar.FormatUSTAR,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	_, err = tarw.Write(dockerfile)
+	_, err = tarWriter.Write(dockerfile)
 	if err != nil {
 		return nil, err
 	}
 
-	err = tarw.WriteHeader(&tar.Header{
+	err = tarWriter.WriteHeader(&tar.Header{
 		Name:   "entrypoint.sh",
 		Size:   int64(len(entrypoint)),
-		Mode:   0755,
+		Mode:   0o755,
 		Format: tar.FormatUSTAR,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	_, err = tarw.Write(entrypoint)
+	_, err = tarWriter.Write(entrypoint)
 	if err != nil {
 		return nil, err
 	}
@@ -262,7 +261,7 @@ func prepareBuildContext() (r io.ReadCloser, err error) {
 }
 
 func randString(n int) string {
-	var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+	letters := []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 	s := make([]rune, n)
 	for i := range s {
 		s[i] = letters[rnd.Intn(len(letters))]
