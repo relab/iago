@@ -10,7 +10,6 @@ import (
 	"time"
 
 	fs "github.com/relab/wrfs"
-	"go.uber.org/multierr"
 )
 
 // DefaultTimeout is the default timeout for an action.
@@ -88,7 +87,6 @@ func NewGroup(hosts []Host) Group {
 
 // Run runs the task on all hosts in the group concurrently.
 func (g Group) Run(name string, f func(ctx context.Context, host Host) error) {
-
 	ctx, cancel := context.WithTimeout(context.Background(), g.Timeout)
 	defer cancel()
 
@@ -110,7 +108,8 @@ func (g Group) Run(name string, f func(ctx context.Context, host Host) error) {
 // Close closes any connections to hosts.
 func (g Group) Close() (err error) {
 	for _, h := range g.Hosts {
-		err = multierr.Append(err, h.Close())
+		// Join close errors; nil errors are discarded by Join.
+		err = errors.Join(err, h.Close())
 	}
 	return err
 }
