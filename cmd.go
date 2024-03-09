@@ -2,9 +2,8 @@ package iago
 
 import (
 	"context"
+	"errors"
 	"io"
-
-	"go.uber.org/multierr"
 )
 
 // CmdRunner defines an interface for running commands on remote hosts.
@@ -40,10 +39,8 @@ func (sa Shell) Apply(ctx context.Context, host Host) (err error) {
 
 	defer func() {
 		for i := 0; i < goroutines; i++ {
-			cerr := <-errChan
-			if cerr != nil {
-				err = multierr.Append(err, cerr)
-			}
+			// Drain the error channel; nil errors are discarded by Join.
+			err = errors.Join(err, <-errChan)
 		}
 	}()
 

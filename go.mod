@@ -8,7 +8,6 @@ require (
 	github.com/docker/go-connections v0.5.0
 	github.com/pkg/sftp v1.13.6
 	github.com/relab/wrfs v0.0.0-20220416082020-a641cd350078
-	go.uber.org/multierr v1.11.0
 	golang.org/x/crypto v0.21.0
 )
 

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"strings"
 
@@ -11,7 +12,6 @@ import (
 	"github.com/pkg/sftp"
 	"github.com/relab/iago/sftpfs"
 	fs "github.com/relab/wrfs"
-	"go.uber.org/multierr"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -156,7 +156,8 @@ func (h *sshHost) NewCommand() (CmdRunner, error) {
 
 // Close closes the connection to the host.
 func (h *sshHost) Close() error {
-	return multierr.Combine(h.sftpClient.Close(), h.client.Close())
+	// Join close errors; nil errors are discarded by Join.
+	return errors.Join(h.sftpClient.Close(), h.client.Close())
 }
 
 func (h *sshHost) SetVar(key string, val interface{}) {
