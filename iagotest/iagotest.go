@@ -49,8 +49,7 @@ func CreateSSHGroup(t *testing.T, n int, skip bool) (g iago.Group) {
 	cli := createClient(t)
 
 	// test connection
-	_, err := cli.Ping(context.Background())
-	if err != nil {
+	if _, err := cli.Ping(context.Background()); err != nil {
 		if skip && client.IsErrConnectionFailed(err) {
 			t.Skip("could not connect to docker daemon")
 		}
@@ -65,16 +64,17 @@ func CreateSSHGroup(t *testing.T, n int, skip bool) (g iago.Group) {
 	network := createNetwork(t, cli)
 
 	t.Cleanup(func() {
-		err := g.Close()
-		if err != nil {
+		if err := g.Close(); err != nil {
 			t.Error(err)
 		}
+		timeout := 1 // seconds to wait before forcefully killing the container
+		opts := container.StopOptions{Timeout: &timeout}
 		for _, containerID := range containers {
-			if err := cli.ContainerRemove(context.Background(), containerID, container.RemoveOptions{}); err != nil {
-				t.Error(err)
+			if err := cli.ContainerStop(context.Background(), containerID, opts); err != nil {
+				t.Errorf("Failed to stop container '%s': %v", containerID, err)
 			}
 		}
-		if err = cli.NetworkRemove(context.Background(), network); err != nil {
+		if err := cli.NetworkRemove(context.Background(), network); err != nil {
 			t.Error(err)
 		}
 	})
