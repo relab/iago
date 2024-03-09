@@ -37,9 +37,6 @@ func DialSSH(name, addr string, cfg *ssh.ClientConfig) (Host, error) {
 	}
 
 	sftpFS := sftpfs.New(sftpClient, "/")
-	if err != nil {
-		return nil, err
-	}
 
 	env, err := fetchEnv(client)
 	if err != nil {
@@ -116,7 +113,7 @@ func (h *sshHost) GetFS() fs.FS {
 
 // Execute executes the given command and returns the output.
 func (h *sshHost) Execute(ctx context.Context, cmd string) (output string, err error) {
-	var outb bytes.Buffer
+	var buf bytes.Buffer
 
 	session, err := h.client.NewSession()
 	if err != nil {
@@ -136,12 +133,12 @@ func (h *sshHost) Execute(ctx context.Context, cmd string) (output string, err e
 		close(c)
 	}()
 
-	session.Stdout = &outb
+	session.Stdout = &buf
 	if err := session.Run(cmd); err != nil {
 		return "", nil
 	}
 
-	return outb.String(), nil
+	return buf.String(), nil
 }
 
 func (h *sshHost) NewCommand() (CmdRunner, error) {
