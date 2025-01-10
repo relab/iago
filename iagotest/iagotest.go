@@ -188,7 +188,7 @@ func createContainer(t *testing.T, cli *client.Client, networkID, pubKey, port s
 }
 
 func createNetwork(t *testing.T, cli *client.Client) string {
-	res, err := cli.NetworkCreate(context.Background(), "iago-"+randString(8), types.NetworkCreate{
+	res, err := cli.NetworkCreate(context.Background(), "iago-"+randString(8), network.CreateOptions{
 		Driver: "bridge",
 	})
 	if err != nil {
