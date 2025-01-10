@@ -14,7 +14,6 @@ import (
 func TestIago(t *testing.T) {
 	dir := t.TempDir()
 	wd, err := os.Getwd()
-
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,20 +24,18 @@ func TestIago(t *testing.T) {
 		t.Fatal(e)
 	}
 
-	g.Run(
-		"Custom Shell Command",
-		func(ctx context.Context, host Host) (err error) {
-			var sb strings.Builder
-			err = Shell{
-				Command: "lsb_release -a",
-				Stdout:  &sb,
-			}.Apply(ctx, host)
-			if err != nil {
-				return err
-			}
-			t.Log(sb.String())
-			return nil
-		})
+	g.Run("Custom Shell Command", func(ctx context.Context, host Host) (err error) {
+		var sb strings.Builder
+		err = Shell{
+			Command: "lsb_release -a",
+			Stdout:  &sb,
+		}.Apply(ctx, host)
+		if err != nil {
+			return err
+		}
+		t.Log(sb.String())
+		return nil
+	})
 
 	g.Run("Read distribution name", Shell{Command: "grep '^ID=' /etc/os-release > $HOME/os"}.Apply)
 
@@ -72,8 +69,8 @@ func TestIago(t *testing.T) {
 		}.Apply(ctx, host)
 	})
 
-	for i := range g.Hosts {
-		f, err := os.ReadFile(filepath.Join(dir, "os."+g.Hosts[i].Name()))
+	for _, h := range g.Hosts {
+		f, err := os.ReadFile(filepath.Join(dir, "os."+h.Name()))
 		if err != nil {
 			t.Fatal(err)
 		}

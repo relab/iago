@@ -48,9 +48,9 @@ type sftpFS struct {
 }
 
 // New returns a new sftpFS from the given sftp client.
-// All paths given in method calls on this FS will be relative to the given rootdir.
-func New(client *sftp.Client, rootdir string) fs.FS {
-	return &sftpFS{client, rootdir}
+// All paths given in method calls on this FS will be relative to the given root dir.
+func New(client *sftp.Client, rootDir string) fs.FS {
+	return &sftpFS{client, rootDir}
 }
 
 func (wrapper *sftpFS) fullName(op, name string) (string, error) {
@@ -209,34 +209,34 @@ func (wrapper *sftpFS) Remove(name string) error {
 	return nil
 }
 
-func (wrapper *sftpFS) Rename(oldpath string, newpath string) error {
-	oldfull, err := wrapper.fullName("rename", oldpath)
+func (wrapper *sftpFS) Rename(oldPath string, newPath string) error {
+	oldFull, err := wrapper.fullName("rename", oldPath)
 	if err != nil {
 		return err
 	}
-	newfull, err := wrapper.fullName("rename", newpath)
+	newFull, err := wrapper.fullName("rename", newPath)
 	if err != nil {
 		return err
 	}
-	err = wrapper.client.Rename(oldfull, newfull)
+	err = wrapper.client.Rename(oldFull, newFull)
 	if err != nil {
-		return &os.LinkError{Op: "rename", Old: oldpath, New: newpath, Err: err}
+		return &os.LinkError{Op: "rename", Old: oldPath, New: newPath, Err: err}
 	}
 	return nil
 }
 
-func (wrapper *sftpFS) Symlink(oldname string, newname string) error {
-	oldfull, err := wrapper.fullName("symlink", oldname)
+func (wrapper *sftpFS) Symlink(oldName string, newName string) error {
+	oldFull, err := wrapper.fullName("symlink", oldName)
 	if err != nil {
 		return err
 	}
-	newfull, err := wrapper.fullName("symlink", newname)
+	newFull, err := wrapper.fullName("symlink", newName)
 	if err != nil {
 		return err
 	}
-	err = wrapper.client.Symlink(oldfull, newfull)
+	err = wrapper.client.Symlink(oldFull, newFull)
 	if err != nil {
-		return &os.LinkError{Op: "symlink", Old: oldname, New: newname, Err: err}
+		return &os.LinkError{Op: "symlink", Old: oldName, New: newName, Err: err}
 	}
 	return nil
 }

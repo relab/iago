@@ -106,12 +106,12 @@ func (p *Perm) WithDirPerm(dirPerm fs.FileMode) Perm {
 	return *p
 }
 
-// GetFilePerm returs the current file permission, or 644 if no file permission was set.
+// GetFilePerm returns the current file permission, or 644 if no file permission was set.
 func (p Perm) GetFilePerm() fs.FileMode {
 	if p.haveFilePerm {
 		return p.perm
 	}
-	return 0644 // default
+	return 0o644 // default
 }
 
 // GetDirPerm returns the current directory permission, or the current file permission,
@@ -123,7 +123,7 @@ func (p Perm) GetDirPerm() fs.FileMode {
 	if p.haveFilePerm {
 		return p.perm
 	}
-	return 0755 // default
+	return 0o755 // default
 }
 
 // Upload uploads a file or directory to a remote host.
