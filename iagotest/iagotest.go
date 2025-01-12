@@ -7,10 +7,8 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	_ "embed"
-	"fmt"
 	"io"
 	mrand "math/rand"
-	"net"
 	"os"
 	"strings"
 	"testing"
@@ -58,9 +56,7 @@ func CreateSSHGroup(t *testing.T, n int, skip bool) (g iago.Group) {
 
 	buildImage(t, cli)
 
-	containers := make([]string, 0, n)
-	ports := getFreePorts(t, n)
-
+	containers := make([]string, n)
 	network := createNetwork(t, cli)
 
 	t.Cleanup(func() {
@@ -79,32 +75,21 @@ func CreateSSHGroup(t *testing.T, n int, skip bool) (g iago.Group) {
 		}
 	})
 
-	var hosts []iago.Host
+	hosts := make([]iago.Host, n)
+	for i := range n {
+		id, addr := createContainer(t, cli, network, pub)
+		t.Logf("Created container %s with ssh address %s", id, addr)
+		containers[i] = id
 
-	for i := 0; i < n; i++ {
-		port := fmt.Sprintf("%d", ports.next())
-		id := createContainer(t, cli, network, pub, port)
-		containers = append(containers, id)
-		var (
-			host iago.Host
-			err  error
-		)
-
-		for j := 0; j < 10; j++ {
-			host, err = iago.DialSSH(id, "localhost:"+port, &ssh.ClientConfig{
-				User:            "root",
-				Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
-				HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-			})
-			if err == nil {
-				break
-			}
-			time.Sleep(200 * time.Millisecond)
-		}
+		var err error
+		hosts[i], err = iago.DialSSH(id, addr, &ssh.ClientConfig{
+			User:            "root",
+			Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
+			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		})
 		if err != nil {
 			t.Fatal(err)
 		}
-		hosts = append(hosts, host)
 	}
 
 	return iago.NewGroup(hosts)
@@ -156,7 +141,7 @@ func buildImage(t *testing.T, cli *client.Client) {
 	}
 }
 
-func createContainer(t *testing.T, cli *client.Client, networkID, pubKey, port string) string {
+func createContainer(t *testing.T, cli *client.Client, networkID, pubKey string) (name, addr string) {
 	res, err := cli.ContainerCreate(context.Background(), &container.Config{
 		Env:   []string{"AUTHORIZED_KEYS=" + pubKey},
 		Image: tag,
@@ -164,27 +149,51 @@ func createContainer(t *testing.T, cli *client.Client, networkID, pubKey, port s
 			"22/tcp": struct{}{},
 		},
 	}, &container.HostConfig{
-		PortBindings: nat.PortMap{"22/tcp": {{HostPort: port}}},
+		PortBindings: nat.PortMap{"22/tcp": {{}}}, // map ssh port to ephemeral port
 		AutoRemove:   true,
 	}, nil, nil, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	details, err := cli.ContainerInspect(context.Background(), res.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	name := strings.TrimPrefix(details.Name, "/")
-	err = cli.NetworkConnect(context.Background(), networkID, res.ID, &network.EndpointSettings{
-		Aliases: []string{name},
-	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err = cli.ContainerStart(context.Background(), res.ID, container.StartOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	return name
+	details, err := cli.ContainerInspect(context.Background(), res.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	name = strings.TrimPrefix(details.Name, "/")
+	err = cli.NetworkConnect(context.Background(), networkID, res.ID, &network.EndpointSettings{
+		Aliases: []string{name},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// retry until the port is assigned, or give up after 10ms
+	for i := range 10 {
+		details, err = cli.ContainerInspect(context.Background(), res.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		addr = sshPortBinding(details)
+		if addr != "" {
+			break
+		}
+		t.Logf("retry %d: no port bindings found for container %s", i, name)
+		time.Sleep(1 * time.Millisecond)
+	}
+	if addr == "" {
+		t.Fatal("no port bindings found after 10ms")
+	}
+	return name, addr
+}
+
+func sshPortBinding(details types.ContainerJSON) string {
+	bindings, ok := details.NetworkSettings.Ports["22/tcp"]
+	if !ok || len(bindings) == 0 {
+		return ""
+	}
+	return "localhost:" + bindings[0].HostPort
 }
 
 func createNetwork(t *testing.T, cli *client.Client) string {
@@ -195,33 +204,6 @@ func createNetwork(t *testing.T, cli *client.Client) string {
 		t.Fatal("failed to create network: ", err)
 	}
 	return res.ID
-}
-
-type ports []int
-
-func (p *ports) next() int {
-	port := (*p)[0]
-	*p = (*p)[1:]
-	return port
-}
-
-// getFreePorts will get free ports from the kernel by opening a listener on 127.0.0.1:0 and then closing it.
-func getFreePorts(t *testing.T, n int) ports {
-	ports := make(ports, n)
-	for i := 0; i < n; i++ {
-		lis, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer func() {
-			err := lis.Close()
-			if err != nil {
-				t.Fatal(err)
-			}
-		}()
-		ports[i] = lis.Addr().(*net.TCPAddr).Port
-	}
-	return ports
 }
 
 func prepareBuildContext() (r io.ReadCloser, err error) {
