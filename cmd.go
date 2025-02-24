@@ -38,7 +38,7 @@ func (sa Shell) Apply(ctx context.Context, host Host) (err error) {
 	errChan := make(chan error)
 
 	defer func() {
-		for i := 0; i < goroutines; i++ {
+		for range goroutines {
 			// Drain the error channel; nil errors are discarded by Join.
 			err = errors.Join(err, <-errChan)
 		}

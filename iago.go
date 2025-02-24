@@ -37,11 +37,11 @@ type Host interface {
 	Close() error
 
 	// SetVar sets a host variable with the given key and value
-	SetVar(key string, val interface{})
+	SetVar(key string, val any)
 
 	// GetVar gets the host variable with the given key.
 	// Returns (val, true) if the variable exists, (nil, false) otherwise.
-	GetVar(key string) (val interface{}, ok bool)
+	GetVar(key string) (val any, ok bool)
 }
 
 // Expand expands any environment variables in the string 's' using the environment of the host 'h'.
