@@ -157,7 +157,7 @@ type copyAction struct {
 	perm  Perm
 }
 
-func (ca copyAction) Apply(ctx context.Context, host Host) (err error) {
+func (ca copyAction) Apply(_ context.Context, host Host) (err error) {
 	var (
 		from fs.FS
 		to   fs.FS

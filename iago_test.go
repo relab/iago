@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	. "github.com/relab/iago"
+	"github.com/relab/iago"
 	"github.com/relab/iago/iagotest"
 )
 
@@ -24,9 +24,9 @@ func TestIago(t *testing.T) {
 		t.Fatal(e)
 	}
 
-	g.Run("Custom Shell Command", func(ctx context.Context, host Host) (err error) {
+	g.Run("Custom Shell Command", func(ctx context.Context, host iago.Host) (err error) {
 		var sb strings.Builder
-		err = Shell{
+		err = iago.Shell{
 			Command: "lsb_release -a",
 			Stdout:  &sb,
 		}.Apply(ctx, host)
@@ -37,33 +37,33 @@ func TestIago(t *testing.T) {
 		return nil
 	})
 
-	g.Run("Read distribution name", Shell{Command: "grep '^ID=' /etc/os-release > $HOME/os"}.Apply)
+	g.Run("Read distribution name", iago.Shell{Command: "grep '^ID=' /etc/os-release > $HOME/os"}.Apply)
 
-	g.Run("Upload a file", func(ctx context.Context, host Host) error {
-		src, err := NewPath(wd, "LICENSE")
+	g.Run("Upload a file", func(ctx context.Context, host iago.Host) error {
+		src, err := iago.NewPath(wd, "LICENSE")
 		if err != nil {
 			return err
 		}
-		dest, err := NewPath(Expand(host, "$HOME"), "LICENSE")
+		dest, err := iago.NewPath(iago.Expand(host, "$HOME"), "LICENSE")
 		if err != nil {
 			return err
 		}
-		return Upload{
+		return iago.Upload{
 			Src:  src,
 			Dest: dest,
 		}.Apply(ctx, host)
 	})
 
-	g.Run("Download files", func(ctx context.Context, host Host) error {
-		src, err := NewPath(Expand(host, "$HOME"), "os")
+	g.Run("Download files", func(ctx context.Context, host iago.Host) error {
+		src, err := iago.NewPath(iago.Expand(host, "$HOME"), "os")
 		if err != nil {
 			return err
 		}
-		dest, err := NewPath(dir, "os")
+		dest, err := iago.NewPath(dir, "os")
 		if err != nil {
 			return err
 		}
-		return Download{
+		return iago.Download{
 			Src:  src,
 			Dest: dest,
 		}.Apply(ctx, host)
