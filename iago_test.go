@@ -21,7 +21,7 @@ func TestIago(t *testing.T) {
 	g := iagotest.CreateSSHGroup(t, 4, false)
 
 	g.ErrorHandler = func(e error) {
-		t.Fatal(e)
+		t.Error(e)
 	}
 
 	g.Run("Custom Shell Command", func(ctx context.Context, host iago.Host) (err error) {
