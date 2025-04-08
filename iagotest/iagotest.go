@@ -8,7 +8,6 @@ import (
 	"crypto/rand"
 	_ "embed"
 	"io"
-	mrand "math/rand"
 	"os"
 	"strings"
 	"testing"
@@ -31,13 +30,7 @@ var (
 	dockerfile []byte
 	//go:embed entrypoint.sh
 	entrypoint []byte
-
-	rnd *mrand.Rand
 )
-
-func init() {
-	rnd = mrand.New(mrand.NewSource(time.Now().Unix()))
-}
 
 // CreateSSHGroup starts n docker containers and connects to them with ssh.
 // If skip is true, this function will call t.Skip() if docker is unavailable.
@@ -188,7 +181,7 @@ func createContainer(t testing.TB, cli *client.Client, networkID, pubKey string)
 	return name, addr
 }
 
-func sshPortBinding(details types.ContainerJSON) string {
+func sshPortBinding(details container.InspectResponse) string {
 	bindings, ok := details.NetworkSettings.Ports["22/tcp"]
 	if !ok || len(bindings) == 0 {
 		return ""
@@ -197,7 +190,7 @@ func sshPortBinding(details types.ContainerJSON) string {
 }
 
 func createNetwork(t testing.TB, cli *client.Client) string {
-	res, err := cli.NetworkCreate(context.Background(), "iago-"+randString(8), network.CreateOptions{
+	res, err := cli.NetworkCreate(context.Background(), "iago-"+rand.Text()[:8], network.CreateOptions{
 		Driver: "bridge",
 	})
 	if err != nil {
@@ -240,13 +233,4 @@ func prepareBuildContext() (r io.ReadCloser, err error) {
 		return nil, err
 	}
 	return io.NopCloser(&buf), nil
-}
-
-func randString(n int) string {
-	letters := []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
-	s := make([]rune, n)
-	for i := range s {
-		s[i] = letters[rnd.Intn(len(letters))]
-	}
-	return string(s)
 }

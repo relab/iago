@@ -27,23 +27,7 @@ type Path struct {
 }
 
 func (p Path) String() string {
-	return p.prefix + p.path
-}
-
-func isAbs(path string) bool {
-	path = filepath.ToSlash(path)
-	if strings.HasPrefix(path, "/") {
-		return true
-	}
-	l := len(filepath.VolumeName(path))
-	if l == 0 {
-		return false
-	}
-	path = path[l:]
-	if path == "" {
-		return false
-	}
-	return path[0] == '/'
+	return filepath.Join(p.prefix, p.path)
 }
 
 func removeSlash(path string) string {
@@ -53,10 +37,10 @@ func removeSlash(path string) string {
 // NewPath returns a new Path struct. prefix must be an absolute path,
 // and path must be relative to the prefix.
 func NewPath(prefix, path string) (p Path, err error) {
-	if !isAbs(prefix) {
+	if !filepath.IsAbs(prefix) {
 		return Path{}, fmt.Errorf("'%s': %w", prefix, ErrNotAbsolute)
 	}
-	if isAbs(path) {
+	if filepath.IsAbs(path) {
 		return Path{}, fmt.Errorf("'%s': %w", path, ErrNotRelative)
 	}
 	return Path{prefix: CleanPath(prefix), path: CleanPath(path)}, nil
@@ -64,7 +48,7 @@ func NewPath(prefix, path string) (p Path, err error) {
 
 // NewPathFromAbs returns a new Path struct from an absolute path.
 func NewPathFromAbs(path string) (p Path, err error) {
-	if !isAbs(path) {
+	if !filepath.IsAbs(path) {
 		return Path{}, ErrNotAbsolute
 	}
 	p.prefix = filepath.ToSlash(filepath.VolumeName(path)) + "/"
@@ -157,7 +141,7 @@ type copyAction struct {
 	perm  Perm
 }
 
-func (ca copyAction) Apply(ctx context.Context, host Host) (err error) {
+func (ca copyAction) Apply(_ context.Context, host Host) (err error) {
 	var (
 		from fs.FS
 		to   fs.FS
@@ -185,7 +169,7 @@ func (ca copyAction) Apply(ctx context.Context, host Host) (err error) {
 		dest := ca.dest.path
 		if ca.fetch {
 			// since we might be copying from multiple hosts, we will create a subdirectory in the destination folder
-			dest += "/" + host.Name()
+			dest = filepath.Join(dest, host.Name())
 		}
 		return copyDir(ca.src.path, dest, ca.perm, from, to)
 	}

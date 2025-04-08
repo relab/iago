@@ -1,7 +1,6 @@
 package iago
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -76,16 +75,12 @@ func fetchEnv(cli *ssh.Client) (env map[string]string, err error) {
 	if err != nil {
 		return nil, err
 	}
-	s := bufio.NewScanner(bytes.NewReader(out))
-	for s.Scan() {
-		l := s.Text()
-		i := strings.Index(l, "=")
-		if i < 1 {
+	for line := range strings.Lines(string(out)) {
+		key, value, found := strings.Cut(line, "=")
+		if !found {
 			continue
 		}
-		key := l[:i]
-		value := l[i+1:]
-		env[key] = value
+		env[key] = strings.TrimSpace(value)
 	}
 	return env, nil
 }

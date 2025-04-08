@@ -86,7 +86,7 @@ func NewGroup(hosts []Host) Group {
 }
 
 // Run runs the task on all hosts in the group concurrently.
-func (g Group) Run(name string, f func(ctx context.Context, host Host) error) {
+func (g Group) Run(name string, f func(context.Context, Host) error) {
 	ctx, cancel := context.WithTimeout(context.Background(), g.Timeout)
 	defer cancel()
 
