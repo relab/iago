@@ -41,7 +41,7 @@ func init() {
 
 // CreateSSHGroup starts n docker containers and connects to them with ssh.
 // If skip is true, this function will call t.Skip() if docker is unavailable.
-func CreateSSHGroup(t *testing.T, n int, skip bool) (g iago.Group) {
+func CreateSSHGroup(t testing.TB, n int, skip bool) (g iago.Group) {
 	signer, pub := generateKey(t)
 
 	cli := createClient(t)
@@ -95,7 +95,7 @@ func CreateSSHGroup(t *testing.T, n int, skip bool) (g iago.Group) {
 	return iago.NewGroup(hosts)
 }
 
-func generateKey(t *testing.T) (ssh.Signer, string) {
+func generateKey(t testing.TB) (ssh.Signer, string) {
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -107,7 +107,7 @@ func generateKey(t *testing.T) (ssh.Signer, string) {
 	return signer, string(ssh.MarshalAuthorizedKey(signer.PublicKey()))
 }
 
-func createClient(t *testing.T) *client.Client {
+func createClient(t testing.TB) *client.Client {
 	cli, err := client.NewClientWithOpts(
 		client.FromEnv,
 		client.WithAPIVersionNegotiation(),
@@ -118,7 +118,7 @@ func createClient(t *testing.T) *client.Client {
 	return cli
 }
 
-func buildImage(t *testing.T, cli *client.Client) {
+func buildImage(t testing.TB, cli *client.Client) {
 	buildCtx, err := prepareBuildContext()
 	if err != nil {
 		t.Fatal(err)
@@ -141,7 +141,7 @@ func buildImage(t *testing.T, cli *client.Client) {
 	}
 }
 
-func createContainer(t *testing.T, cli *client.Client, networkID, pubKey string) (name, addr string) {
+func createContainer(t testing.TB, cli *client.Client, networkID, pubKey string) (name, addr string) {
 	res, err := cli.ContainerCreate(context.Background(), &container.Config{
 		Env:   []string{"AUTHORIZED_KEYS=" + pubKey},
 		Image: tag,
@@ -196,7 +196,7 @@ func sshPortBinding(details types.ContainerJSON) string {
 	return "localhost:" + bindings[0].HostPort
 }
 
-func createNetwork(t *testing.T, cli *client.Client) string {
+func createNetwork(t testing.TB, cli *client.Client) string {
 	res, err := cli.NetworkCreate(context.Background(), "iago-"+randString(8), network.CreateOptions{
 		Driver: "bridge",
 	})
