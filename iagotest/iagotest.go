@@ -181,7 +181,7 @@ func createContainer(t testing.TB, cli *client.Client, networkID, pubKey string)
 	return name, addr
 }
 
-func sshPortBinding(details types.ContainerJSON) string {
+func sshPortBinding(details container.InspectResponse) string {
 	bindings, ok := details.NetworkSettings.Ports["22/tcp"]
 	if !ok || len(bindings) == 0 {
 		return ""
