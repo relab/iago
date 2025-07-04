@@ -12,6 +12,8 @@
     "cSpell.words": [
         "alexhunt",
         "fsys",
+        "gocyclo",
+        "golangci",
         "iagotest",
         "mrand",
         "relab",

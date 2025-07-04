@@ -1,17 +1,22 @@
----
+version: "2"
 linters:
   enable:
-    - revive
-    - gocyclo
-    - misspell
-
-linters-settings:
-  gocyclo:
-    min-complexity: 15
-
-  revive:
-    min-confidence: 0.21 # disables package comment warning
-
-issues:
-  exclude-use-default: false
-  exclude-case-sensitive: false
+  - gocyclo
+  - misspell
+  - revive
+  settings:
+    gocyclo:
+      min-complexity: 15
+  exclusions:
+    generated: lax
+    paths:
+    - third_party$
+    - builtin$
+    - examples$
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+    - third_party$
+    - builtin$
+    - examples$
