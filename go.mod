@@ -4,7 +4,7 @@ go 1.24.4
 
 require (
 	github.com/alexhunt7/ssher v0.0.0-20190216204854-d36569cf7047
-	github.com/docker/docker v28.3.0+incompatible
+	github.com/docker/docker v28.3.1+incompatible
 	github.com/docker/go-connections v0.5.0
 	github.com/pkg/sftp v1.13.9
 	github.com/relab/wrfs v0.0.0-20220416082020-a641cd350078

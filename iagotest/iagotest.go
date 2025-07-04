@@ -1,3 +1,4 @@
+// Package iagotest provides utilities for external libraries to test using the iago package.
 package iagotest
 
 import (
@@ -13,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/build"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
 
@@ -116,7 +117,7 @@ func buildImage(t testing.TB, cli *client.Client) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, err := cli.ImageBuild(context.Background(), buildCtx, types.ImageBuildOptions{
+	res, err := cli.ImageBuild(context.Background(), buildCtx, build.ImageBuildOptions{
 		Dockerfile: "Dockerfile",
 		Tags:       []string{tag},
 	})

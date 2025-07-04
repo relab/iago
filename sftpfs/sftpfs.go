@@ -1,3 +1,4 @@
+// Package sftpfs provides a filesystem interface to an SFTP server using the github.com/pkg/sftp package.
 package sftpfs
 
 import (
