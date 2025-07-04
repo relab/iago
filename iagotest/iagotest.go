@@ -1,3 +1,4 @@
+// Package iagotest provides utilities for external libraries to test using the iago package.
 package iagotest
 
 import (

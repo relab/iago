@@ -1,3 +1,4 @@
+// Package iago provides a framework for running tasks on remote hosts.
 package iago
 
 import (
