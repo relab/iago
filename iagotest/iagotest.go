@@ -14,12 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/docker/docker/api/types/build"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/network"
-
-	"github.com/docker/docker/client"
-	"github.com/docker/go-connections/nat"
+	"github.com/relab/container"
+	"github.com/relab/container/build"
+	"github.com/relab/container/network"
 	"github.com/relab/iago"
 	"golang.org/x/crypto/ssh"
 )
@@ -41,8 +38,8 @@ func CreateSSHGroup(t testing.TB, n int, skip bool) (g iago.Group) {
 	cli := createClient(t)
 
 	// test connection
-	if _, err := cli.Ping(context.Background()); err != nil {
-		if skip && client.IsErrConnectionFailed(err) {
+	if err := cli.Ping(context.Background()); err != nil {
+		if skip {
 			t.Skip("could not connect to docker daemon")
 		}
 		t.Fatal(err)
@@ -52,6 +49,7 @@ func CreateSSHGroup(t testing.TB, n int, skip bool) (g iago.Group) {
 
 	containers := make([]string, n)
 	network := createNetwork(t, cli)
+	t.Logf("Created network %s", network)
 
 	t.Cleanup(func() {
 		if err := g.Close(); err != nil {
@@ -62,6 +60,9 @@ func CreateSSHGroup(t testing.TB, n int, skip bool) (g iago.Group) {
 		for _, containerID := range containers {
 			if err := cli.ContainerStop(context.Background(), containerID, opts); err != nil {
 				t.Errorf("Failed to stop container '%s': %v", containerID, err)
+			}
+			if err := cli.NetworkDisconnect(context.Background(), network, containerID, true); err != nil {
+				t.Errorf("Failed to disconnect container %s from network '%s': %v", containerID, network, err)
 			}
 		}
 		if err := cli.NetworkRemove(context.Background(), network); err != nil {
@@ -101,18 +102,15 @@ func generateKey(t testing.TB) (ssh.Signer, string) {
 	return signer, string(ssh.MarshalAuthorizedKey(signer.PublicKey()))
 }
 
-func createClient(t testing.TB) *client.Client {
-	cli, err := client.NewClientWithOpts(
-		client.FromEnv,
-		client.WithAPIVersionNegotiation(),
-	)
+func createClient(t testing.TB) *container.Container {
+	cli, err := container.NewContainer()
 	if err != nil {
 		t.Fatal(err)
 	}
 	return cli
 }
 
-func buildImage(t testing.TB, cli *client.Client) {
+func buildImage(t testing.TB, cli *container.Container) {
 	buildCtx, err := prepareBuildContext()
 	if err != nil {
 		t.Fatal(err)
@@ -125,31 +123,31 @@ func buildImage(t testing.TB, cli *client.Client) {
 		t.Fatal(err)
 	}
 	defer func() {
-		err = res.Body.Close()
+		err = res.Close()
 		if err != nil {
 			t.Error(err)
 		}
 	}()
-	if _, err = io.Copy(os.Stdout, res.Body); err != nil {
+	if _, err = io.Copy(os.Stdout, res); err != nil {
 		t.Error(err)
 	}
 }
 
-func createContainer(t testing.TB, cli *client.Client, networkID, pubKey string) (name, addr string) {
+func createContainer(t testing.TB, cli *container.Container, networkID, pubKey string) (name, addr string) {
 	res, err := cli.ContainerCreate(context.Background(), &container.Config{
 		Env:   []string{"AUTHORIZED_KEYS=" + pubKey},
 		Image: tag,
-		ExposedPorts: nat.PortSet{
+		ExposedPorts: container.PortSet{
 			"22/tcp": struct{}{},
 		},
 	}, &container.HostConfig{
-		PortBindings: nat.PortMap{"22/tcp": {{}}}, // map ssh port to ephemeral port
+		PortBindings: container.PortMap{"22/tcp": {{}}}, // map ssh port to ephemeral port
 		AutoRemove:   true,
-	}, nil, nil, "")
+	}, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = cli.ContainerStart(context.Background(), res.ID, container.StartOptions{}); err != nil {
+	if err = cli.ContainerStart(context.Background(), res.ID); err != nil {
 		t.Fatal(err)
 	}
 	details, err := cli.ContainerInspect(context.Background(), res.ID)
@@ -190,8 +188,9 @@ func sshPortBinding(details container.InspectResponse) string {
 	return "localhost:" + bindings[0].HostPort
 }
 
-func createNetwork(t testing.TB, cli *client.Client) string {
-	res, err := cli.NetworkCreate(context.Background(), "iago-"+rand.Text()[:8], network.CreateOptions{
+func createNetwork(t testing.TB, cli *container.Container) string {
+	res, err := cli.NetworkCreate(context.Background(), network.CreateOptions{
+		Name:   "iago-" + rand.Text()[:8],
 		Driver: "bridge",
 	})
 	if err != nil {
