@@ -15,10 +15,13 @@
         "gocyclo",
         "golangci",
         "iagotest",
+        "kevinburke",
+        "knownhosts",
         "mrand",
         "relab",
         "sftpfs",
-        "ssher",
+        "testdata",
+        "testuser",
         "wrfs"
     ]
 }

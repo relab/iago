@@ -8,6 +8,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	_ "embed"
+	"encoding/pem"
 	"io"
 	"os"
 	"strings"
@@ -33,7 +34,7 @@ var (
 // CreateSSHGroup starts n docker containers and connects to them with ssh.
 // If skip is true, this function will call t.Skip() if docker is unavailable.
 func CreateSSHGroup(t testing.TB, n int, skip bool) (g iago.Group) {
-	signer, pub := generateKey(t)
+	signer, _, pub := generateKey(t)
 
 	cli := createClient(t)
 
@@ -72,7 +73,7 @@ func CreateSSHGroup(t testing.TB, n int, skip bool) (g iago.Group) {
 
 	hosts := make([]iago.Host, n)
 	for i := range n {
-		id, addr := createContainer(t, cli, network, pub)
+		id, addr := createContainer(t, cli, network, string(pub))
 		t.Logf("Created container %s with ssh address %s", id, addr)
 		containers[i] = id
 
@@ -90,8 +91,13 @@ func CreateSSHGroup(t testing.TB, n int, skip bool) (g iago.Group) {
 	return iago.NewGroup(hosts)
 }
 
-func generateKey(t testing.TB) (ssh.Signer, string) {
+func generateKey(t testing.TB) (ssh.Signer, []byte, []byte) {
+	t.Helper()
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pemBlock, err := ssh.MarshalPrivateKey(priv, "Test Key")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +105,7 @@ func generateKey(t testing.TB) (ssh.Signer, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return signer, string(ssh.MarshalAuthorizedKey(signer.PublicKey()))
+	return signer, pem.EncodeToMemory(pemBlock), ssh.MarshalAuthorizedKey(signer.PublicKey())
 }
 
 func createClient(t testing.TB) *container.Container {

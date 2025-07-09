@@ -7,7 +7,6 @@ import (
 	"io"
 	"strings"
 
-	"github.com/alexhunt7/ssher"
 	"github.com/pkg/sftp"
 	"github.com/relab/iago/sftpfs"
 	fs "github.com/relab/wrfs"
@@ -50,7 +49,7 @@ func DialSSH(name, addr string, cfg *ssh.ClientConfig) (Host, error) {
 func NewSSHGroup(hostNames []string, sshConfigPath string) (g Group, err error) {
 	hosts := make([]Host, 0, len(hostNames))
 	for _, h := range hostNames {
-		clientCfg, addr, err := ssher.ClientConfig(h, sshConfigPath)
+		clientCfg, addr, err := ClientConfig(h, sshConfigPath)
 		if err != nil {
 			return Group{}, err
 		}
