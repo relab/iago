@@ -56,10 +56,10 @@ func TestClientConfigActuallyConnecting(t *testing.T) {
 		t.Fatal(err)
 	}
 	config := `Host yummy
-    Hostname 127.0.0.1
+	Hostname 127.0.0.1
 	User root
 	IdentityFile ` + privKeyFile + `
-    Port ` + port
+	Port ` + port
 
 	configPath := filepath.Join(tmpDir, "config")
 	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
