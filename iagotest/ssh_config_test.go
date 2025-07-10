@@ -71,10 +71,6 @@ func TestClientConfigActuallyConnecting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	// skip host key checking for this test
-	sshClientConfig.HostKeyCallback = ssh.InsecureIgnoreHostKey()
-
 	_, err = ssh.Dial("tcp", sshConfig.ConnectAddr("yummy"), sshClientConfig)
 	if err != nil {
 		t.Fatal(err)
@@ -87,5 +83,7 @@ func sshConfigEntry(hostAlias, hostname, user, identityFile, port string) string
 	User %s
 	IdentityFile %s
 	Port %s
+	StrictHostKeyChecking no
+	UserKnownHostsFile /dev/null
 `, hostAlias, hostname, user, identityFile, port)
 }
