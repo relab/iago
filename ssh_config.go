@@ -62,13 +62,9 @@ type sshConfig struct {
 
 // ClientConfig returns a [ssh.ClientConfig] for the given host alias.
 func (cw *sshConfig) ClientConfig(hostAlias string) (*ssh.ClientConfig, error) {
-	userKnownHostsFile, err := cw.get(hostAlias, "UserKnownHostsFile")
+	hostKeyCallback, err := cw.getHostKeyCallback(hostAlias)
 	if err != nil {
 		return nil, err
-	}
-	hostKeyCallback, err := getHostKeyCallback(strings.Split(userKnownHostsFile, " "))
-	if err != nil {
-		return nil, fmt.Errorf("iago: failed to create host key callback: %w", err)
 	}
 
 	signers := agentSigners()
@@ -165,9 +161,33 @@ func agentSigners() []ssh.Signer {
 	return nil
 }
 
-// getHostKeyCallback returns a HostKeyCallback that checks the host keys against the known hosts files.
+// getHostKeyCallback returns a [ssh.HostKeyCallback] for use with [ssh.ClientConfig].
+// If StrictHostKeyChecking is set to "no", host key checking is disabled, ignoring
+// any host keys. Otherwise, it creates a host key callback using the known hosts files
+// specified by UserKnownHostsFile.
+func (cw *sshConfig) getHostKeyCallback(hostAlias string) (hostKeyCallback ssh.HostKeyCallback, err error) {
+	strictHostKeyChecking, err := cw.get(hostAlias, "StrictHostKeyChecking")
+	if err != nil {
+		return nil, err
+	}
+	if strictHostKeyChecking == "no" {
+		return ssh.InsecureIgnoreHostKey(), nil
+	}
+
+	userKnownHostsFile, err := cw.get(hostAlias, "UserKnownHostsFile")
+	if err != nil {
+		return nil, err
+	}
+	hostKeyCallback, err = createHostKeyCallback(strings.Split(userKnownHostsFile, " "))
+	if err != nil {
+		return nil, fmt.Errorf("iago: failed to create host key callback for %s: %w", hostAlias, err)
+	}
+	return hostKeyCallback, nil
+}
+
+// createHostKeyCallback returns a HostKeyCallback that checks the host keys against the known hosts files.
 // It skips files that do not exist and returns an error if no valid known hosts files are provided.
-func getHostKeyCallback(userKnownHostsFilesPaths []string) (ssh.HostKeyCallback, error) {
+func createHostKeyCallback(userKnownHostsFilesPaths []string) (ssh.HostKeyCallback, error) {
 	var userKnownHostsFiles []string
 	for _, file := range userKnownHostsFilesPaths {
 		file = expand(file)
