@@ -220,7 +220,7 @@ func copyFile(src, dest string, perm Perm, from fs.FS, to fs.FS) (err error) {
 
 	writer, ok := toF.(io.Writer)
 	if !ok {
-		return fmt.Errorf("cannot write to %s: %v", dest, fs.ErrUnsupported)
+		return fmt.Errorf("cannot write to %s: %w", dest, fs.ErrUnsupported)
 	}
 
 	_, err = io.Copy(writer, fromF)

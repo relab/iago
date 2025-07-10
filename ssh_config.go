@@ -55,7 +55,7 @@ func ClientConfig(hostAlias string, configFile string) (*ssh.ClientConfig, strin
 	userKnownHostsFile := userConfig.get(hostAlias, "UserKnownHostsFile", "")
 	hostKeyCallback, err := getHostKeyCallback(strings.Split(userKnownHostsFile, " "))
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to create host key callback: %w", err)
+		return nil, "", fmt.Errorf("iago: failed to create host key callback: %w", err)
 	}
 
 	signers := agentSigners()
@@ -63,6 +63,12 @@ func ClientConfig(hostAlias string, configFile string) (*ssh.ClientConfig, strin
 	pubkey := fileSigner(identityFile)
 	if pubkey != nil {
 		signers = append(signers, pubkey)
+	}
+	if len(signers) == 0 {
+		// Cannot authenticate without any signers in ssh agent or the provided identity file.
+		// If the identity file contains a passphrase protected private key, this will fail
+		// as the passphrase cannot be provided here.
+		return nil, "", fmt.Errorf("iago: no valid authentication methods found for %s", hostAlias)
 	}
 
 	clientConfig := &ssh.ClientConfig{
@@ -77,13 +83,13 @@ func ClientConfig(hostAlias string, configFile string) (*ssh.ClientConfig, strin
 func decodeSSHConfig(configFile string) (*configWrapper, error) {
 	fd, err := os.Open(expand(configFile))
 	if err != nil {
-		return nil, fmt.Errorf("failed to open ssh config file: %w", err)
+		return nil, fmt.Errorf("iago: failed to open ssh config file: %w", err)
 	}
 	defer fd.Close()
 
 	decodedConfig, err := ssh_config.Decode(fd)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode ssh config file: %w", err)
+		return nil, fmt.Errorf("iago: failed to decode ssh config file: %w", err)
 	}
 	return &configWrapper{decodedConfig}, nil
 }
@@ -110,7 +116,7 @@ func (cw *configWrapper) connect(hostAlias string) string {
 }
 
 // fileSigner returns a SSH signer based on the private key in the specified IdentityFile.
-// If the file cannot be read or parsed, it returns nil.
+// If the file cannot be read, parsed, or if the private key is passphrase protected, it returns nil.
 func fileSigner(file string) ssh.Signer {
 	buffer, err := os.ReadFile(expand(file))
 	if err != nil {
@@ -136,6 +142,8 @@ func agentSigners() []ssh.Signer {
 	return nil
 }
 
+// getHostKeyCallback returns a HostKeyCallback that checks the host keys against the known hosts files.
+// It skips files that do not exist and returns an error if no valid known hosts files are provided.
 func getHostKeyCallback(userKnownHostsFilesPaths []string) (ssh.HostKeyCallback, error) {
 	var userKnownHostsFiles []string
 	for _, file := range userKnownHostsFilesPaths {
