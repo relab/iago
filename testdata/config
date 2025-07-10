@@ -1,0 +1,11 @@
+Host localhost 127.*
+    Hostname 127.0.0.1
+    User testuser
+    IdentityFile testdata/id_rsa
+    Port 22
+
+Host Connect*
+    Port 1234
+
+Host *
+    User testuser2
