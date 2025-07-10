@@ -56,10 +56,10 @@ func TestClientConfigActuallyConnecting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	config := sshConfigEntry("yummy", "127.0.0.1", "root", privKeyFile, port)
+	configEntry := sshConfigEntry("yummy", "127.0.0.1", "root", privKeyFile, port)
 
 	configPath := filepath.Join(tmpDir, "config")
-	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+	if err := os.WriteFile(configPath, []byte(configEntry), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
