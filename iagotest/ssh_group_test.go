@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/relab/iago"
@@ -84,8 +85,21 @@ func TestNewSSHGroup(t *testing.T) {
 		t.Logf("Successfully tested host %s with address %s", host.Name(), host.Address())
 	}
 
+	group.Run("Echo SSH connection variable", func(ctx context.Context, host iago.Host) (err error) {
+		var sb strings.Builder
+		err = iago.Shell{
+			Command: "echo SSH Connection details: $SSH_CONNECTION",
+			Stdout:  &sb,
+		}.Apply(ctx, host)
+		if err != nil {
+			return err
+		}
+		t.Log(strings.TrimSpace(sb.String()))
+		return nil
+	})
+
 	// Test group-wide operation using Run method
-	group.Run("test hostname", func(ctx context.Context, host iago.Host) error {
+	group.Run("Run hostname command", func(ctx context.Context, host iago.Host) error {
 		cmd, err := host.NewCommand()
 		if err != nil {
 			return err
@@ -105,7 +119,7 @@ func TestNewSSHGroup(t *testing.T) {
 		if err != nil && err != io.EOF {
 			return fmt.Errorf("failed to read from stdout pipe: %w", err)
 		}
-		t.Logf("Hostname from host %s: %s", host.Name(), string(buf[:n]))
+		t.Logf("Hostname on %s: %s", host.Name(), string(buf[:n]))
 		return nil
 	})
 }
