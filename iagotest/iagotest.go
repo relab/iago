@@ -9,8 +9,11 @@ import (
 	"crypto/rand"
 	_ "embed"
 	"encoding/pem"
+	"fmt"
 	"io"
+	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -36,37 +39,12 @@ var (
 func CreateSSHGroup(t testing.TB, n int, skip bool) (g iago.Group) {
 	signer, _, pub := generateKey(t)
 
-	cli := createClient(t)
-
-	// test connection
-	if err := cli.Ping(context.Background()); err != nil {
-		if skip {
-			t.Skip("could not connect to docker daemon")
-		}
-		t.Fatal(err)
-	}
-
-	buildImage(t, cli)
-
-	containers := make([]string, n)
-	network := createNetwork(t, cli)
-	t.Logf("Created network %s", network)
+	cli, network := setupContainerEnvironment(t, skip)
+	// cleanup the network (will be called last due to LIFO)
+	t.Cleanup(cleanupNetwork(t, cli, network))
 
 	t.Cleanup(func() {
 		if err := g.Close(); err != nil {
-			t.Error(err)
-		}
-		timeout := 1 // seconds to wait before forcefully killing the container
-		opts := container.StopOptions{Timeout: &timeout}
-		for _, containerID := range containers {
-			if err := cli.ContainerStop(context.Background(), containerID, opts); err != nil {
-				t.Errorf("Failed to stop container '%s': %v", containerID, err)
-			}
-			if err := cli.NetworkDisconnect(context.Background(), network, containerID, true); err != nil {
-				t.Errorf("Failed to disconnect container %s from network '%s': %v", containerID, network, err)
-			}
-		}
-		if err := cli.NetworkRemove(context.Background(), network); err != nil {
 			t.Error(err)
 		}
 	})
@@ -74,8 +52,8 @@ func CreateSSHGroup(t testing.TB, n int, skip bool) (g iago.Group) {
 	hosts := make([]iago.Host, n)
 	for i := range n {
 		id, addr := createContainer(t, cli, network, string(pub))
+		t.Cleanup(cleanupContainer(t, cli, network, id))
 		t.Logf("Created container %s with ssh address %s", id, addr)
-		containers[i] = id
 
 		var err error
 		hosts[i], err = iago.DialSSH(id, addr, &ssh.ClientConfig{
@@ -239,4 +217,132 @@ func prepareBuildContext() (r io.ReadCloser, err error) {
 		return nil, err
 	}
 	return io.NopCloser(&buf), nil
+}
+
+// sshKeyFiles represents the paths to SSH key files created for testing
+type sshKeyFiles struct {
+	privateKeyPath string
+	publicKeyPath  string
+	publicKeyData  []byte
+}
+
+// setupSSHKeys generates SSH keys and writes them to temporary files in the given directory.
+// Returns the file paths and public key data for use in tests.
+func setupSSHKeys(t testing.TB, tmpDir string) sshKeyFiles {
+	t.Helper()
+	_, priv, pub := generateKey(t)
+
+	privKeyFile := filepath.Join(tmpDir, "id_ed25519")
+	if err := os.WriteFile(privKeyFile, priv, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pubKeyFile := filepath.Join(tmpDir, "id_ed25519.pub")
+	if err := os.WriteFile(pubKeyFile, pub, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	return sshKeyFiles{
+		privateKeyPath: privKeyFile,
+		publicKeyPath:  pubKeyFile,
+		publicKeyData:  pub,
+	}
+}
+
+// setupContainerEnvironment creates a Docker client, pings it, builds the image, and creates a network.
+// Returns the client and network ID for use in tests.
+// If skip is true, it will skip the test if the Docker daemon is not reachable.
+func setupContainerEnvironment(t testing.TB, skip bool) (*container.Container, string) {
+	t.Helper()
+	cli := createClient(t)
+	if err := cli.Ping(context.Background()); err != nil {
+		if skip {
+			t.Skip("could not connect to docker daemon")
+		} else {
+			t.Fatal(err)
+		}
+	}
+	buildImage(t, cli)
+
+	network := createNetwork(t, cli)
+	t.Logf("Created network %s", network)
+
+	return cli, network
+}
+
+// containerInfo represents information about a created container
+type containerInfo struct {
+	id        string
+	address   string
+	hostAlias string
+	port      string
+}
+
+// createContainerWithInfo creates a container and returns structured information about it
+func createContainerWithInfo(t testing.TB, cli *container.Container, network, pubKey, hostAlias string) containerInfo {
+	t.Helper()
+	id, addr := createContainer(t, cli, network, pubKey)
+
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Logf("Created container %s with ssh address %s for host alias %s", id, addr, hostAlias)
+
+	return containerInfo{
+		id:        id,
+		address:   addr,
+		hostAlias: hostAlias,
+		port:      port,
+	}
+}
+
+// cleanupContainer provides a cleanup function for stopping a single container
+func cleanupContainer(t testing.TB, cli *container.Container, network, containerID string) func() {
+	t.Helper()
+	return func() {
+		timeout := 1 // seconds to wait before forcefully killing the container
+		opts := container.StopOptions{Timeout: &timeout}
+		if err := cli.ContainerStop(context.Background(), containerID, opts); err != nil {
+			t.Errorf("Failed to stop container '%s': %v", containerID, err)
+		}
+		if err := cli.NetworkDisconnect(context.Background(), network, containerID, true); err != nil {
+			t.Errorf("Failed to disconnect container %s from network '%s': %v", containerID, network, err)
+		}
+	}
+}
+
+// cleanupNetwork provides a cleanup function for removing a network
+func cleanupNetwork(t testing.TB, cli *container.Container, network string) func() {
+	t.Helper()
+	return func() {
+		if err := cli.NetworkRemove(context.Background(), network); err != nil {
+			t.Error(err)
+		}
+	}
+}
+
+// sshConfigEntry generates an SSH config entry for the given parameters
+func sshConfigEntry(hostAlias, hostname, user, identityFile, port string) string {
+	return fmt.Sprintf(`Host %s
+	Hostname %s
+	User %s
+	IdentityFile %s
+	Port %s
+	StrictHostKeyChecking no
+	UserKnownHostsFile /dev/null
+`, hostAlias, hostname, user, identityFile, port)
+}
+
+// createSSHConfigFile creates an SSH config file with the given entries
+func createSSHConfigFile(t testing.TB, configPath string, entries []string) {
+	t.Helper()
+	configContent := ""
+	for _, entry := range entries {
+		configContent += entry + "\n"
+	}
+
+	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }

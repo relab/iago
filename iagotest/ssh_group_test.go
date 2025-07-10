@@ -4,89 +4,50 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/relab/container"
 	"github.com/relab/iago"
 )
 
 func TestNewSSHGroup(t *testing.T) {
-	_, priv, pub := generateKey(t)
-
 	tmpDir := t.TempDir()
-	privKeyFile := filepath.Join(tmpDir, "id_ed25519")
-	if err := os.WriteFile(privKeyFile, priv, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	pubKeyFile := filepath.Join(tmpDir, "id_ed25519.pub")
-	if err := os.WriteFile(pubKeyFile, pub, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	keyFiles := setupSSHKeys(t, tmpDir)
 
-	cli := createClient(t)
-	if err := cli.Ping(context.Background()); err != nil {
-		t.Skip("could not connect to docker daemon")
-	}
-	buildImage(t, cli)
-
-	network := createNetwork(t, cli)
-	t.Logf("Created network %s", network)
+	cli, network := setupContainerEnvironment(t, true)
+	// cleanup the network (will be called last due to LIFO)
+	t.Cleanup(cleanupNetwork(t, cli, network))
 
 	// Create multiple containers for the group test
 	numContainers := 3
-	containerIDs := make([]string, numContainers)
-	hostAliases := make([]string, numContainers)
-	configEntries := make([]string, numContainers)
+	containerInfos := make([]containerInfo, numContainers)
 
-	t.Cleanup(func() {
-		timeout := 1 // seconds to wait before forcefully killing the container
-		opts := container.StopOptions{Timeout: &timeout}
-		for _, id := range containerIDs {
-			if err := cli.ContainerStop(context.Background(), id, opts); err != nil {
-				t.Errorf("Failed to stop container '%s': %v", id, err)
-			}
-			if err := cli.NetworkDisconnect(context.Background(), network, id, true); err != nil {
-				t.Errorf("Failed to disconnect container %s from network '%s': %v", id, network, err)
-			}
-		}
-		if err := cli.NetworkRemove(context.Background(), network); err != nil {
-			t.Error(err)
-		}
-	})
-
-	// Create containers and build SSH config entries
+	// Create containers and set up individual cleanup for each
 	for i := range numContainers {
-		id, addr := createContainer(t, cli, network, string(pub))
-		containerIDs[i] = id
 		hostAlias := fmt.Sprintf("test-host-%d", i+1)
-		hostAliases[i] = hostAlias
+		containerInfo := createContainerWithInfo(t, cli, network, string(keyFiles.publicKeyData), hostAlias)
+		containerInfos[i] = containerInfo
+		t.Cleanup(cleanupContainer(t, cli, network, containerInfo.id))
+	}
 
-		_, port, err := net.SplitHostPort(addr)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		configEntry := sshConfigEntry(hostAlias, "127.0.0.1", "root", privKeyFile, port)
-		configEntries[i] = configEntry
-
-		t.Logf("Created container %s with ssh address %s for host alias %s", id, addr, hostAlias)
+	// Build SSH config entries from containerInfos
+	configEntries := make([]string, numContainers)
+	for i, containerInfo := range containerInfos {
+		configEntries[i] = sshConfigEntry(containerInfo.hostAlias, "127.0.0.1", "root", keyFiles.privateKeyPath, containerInfo.port)
 	}
 
 	// Create SSH config file
 	configPath := filepath.Join(tmpDir, "config")
-	configContent := ""
-	for _, entry := range configEntries {
-		configContent += entry + "\n"
-	}
-
-	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	createSSHConfigFile(t, configPath, configEntries)
 
 	t.Logf("Created SSH config file at %s with %d host entries", configPath, numContainers)
+
+	// Extract host aliases from containerInfos for NewSSHGroup
+	hostAliases := make([]string, len(containerInfos))
+	for i, containerInfo := range containerInfos {
+		hostAliases[i] = containerInfo.hostAlias
+	}
 
 	// Test NewSSHGroup
 	group, err := iago.NewSSHGroup(hostAliases, configPath)
@@ -103,7 +64,7 @@ func TestNewSSHGroup(t *testing.T) {
 
 	// Test each host in the group
 	for i, host := range hosts {
-		expectedName := hostAliases[i]
+		expectedName := containerInfos[i].hostAlias
 		if host.Name() != expectedName {
 			t.Errorf("Expected host name %s, got %s", expectedName, host.Name())
 		}
