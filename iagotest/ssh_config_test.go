@@ -2,6 +2,7 @@ package iagotest
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -55,11 +56,7 @@ func TestClientConfigActuallyConnecting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	config := `Host yummy
-	Hostname 127.0.0.1
-	User root
-	IdentityFile ` + privKeyFile + `
-	Port ` + port
+	config := sshConfigEntry("yummy", "127.0.0.1", "root", privKeyFile, port)
 
 	configPath := filepath.Join(tmpDir, "config")
 	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
@@ -77,4 +74,13 @@ func TestClientConfigActuallyConnecting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+func sshConfigEntry(hostAlias, hostname, user, identityFile, port string) string {
+	return fmt.Sprintf(`Host %s
+	Hostname %s
+	User %s
+	IdentityFile %s
+	Port %s
+`, hostAlias, hostname, user, identityFile, port)
 }
