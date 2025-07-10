@@ -77,3 +77,48 @@ func TestIago(t *testing.T) {
 		t.Log(string(f))
 	}
 }
+
+func TestIagoDownloadExample(t *testing.T) {
+	dir := t.TempDir()
+
+	// The iagotest package provides a helper function that automatically
+	// builds and starts docker containers with an exposed SSH port for testing.
+	g := iagotest.CreateSSHGroup(t, 2, false)
+
+	g.Run("Download files", func(ctx context.Context, host iago.Host) error {
+		src, err := iago.NewPath("/etc", "os-release")
+		if err != nil {
+			return err
+		}
+		t.Logf("Downloading %s from %s", src, host.Name())
+		dest, err := iago.NewPath(dir, "os")
+		if err != nil {
+			return err
+		}
+		t.Logf("Saving to %s", dest)
+		return iago.Download{
+			Src:  src,
+			Dest: dest,
+			Perm: iago.NewPerm(0o644),
+		}.Apply(ctx, host)
+	})
+
+	filesInDir, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := make([]string, len(filesInDir))
+	for i, file := range filesInDir {
+		files[i] = file.Name()
+	}
+	t.Logf("Copied files: %s", strings.Join(files, ", "))
+
+	for _, h := range g.Hosts {
+		t.Logf("Reading file %s for host %s", filepath.Join(dir, "os."+h.Name()), h.Name())
+		f, err := os.ReadFile(filepath.Join(dir, "os."+h.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Log(string(f))
+	}
+}
