@@ -1,6 +1,6 @@
-# Iago
+# Infrastructure as Code (Iago)
 
-Iago (Infrastructure as Code) is a lightweight software deployment framework.
+Iago is a lightweight software deployment framework.
 Iago scripts are written in Go and compiled into a single binary.
 It supports executing tasks concurrently across multiple hosts, such as uploading and downloading files, running commands, and managing services.
 
