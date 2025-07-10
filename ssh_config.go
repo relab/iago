@@ -95,6 +95,10 @@ func (cw *sshConfig) ClientConfig(hostAlias string) (*ssh.ClientConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	if user == "" {
+		// default to the current user if user not specified in the config file
+		user = username
+	}
 
 	clientConfig := &ssh.ClientConfig{
 		Config:          ssh.Config{},
