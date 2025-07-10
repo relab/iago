@@ -175,7 +175,7 @@ func (ca copyAction) Apply(_ context.Context, host Host) (err error) {
 	}
 	dest := ca.dest.path
 	if ca.fetch {
-		// since we might be copying from multiple hosts, we will prefix the filename with the host's name.
+		// since we might be copying from multiple hosts, we add the host's name to the destination file
 		dest += "." + host.Name()
 	}
 	return copyFile(ca.src.path, dest, ca.perm, from, to)
