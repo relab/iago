@@ -1,8 +1,8 @@
 # Iago
 
-Iago (Infrastructure as Code) is an software deployment framework.
-Iago scripts are written in Go.
-This means that Iago scripts can be compiled into a simple binary with no dependencies.
+Iago (Infrastructure as Code) is a lightweight software deployment framework.
+Iago scripts are written in Go and compiled into a single binary.
+It supports executing tasks concurrently across multiple hosts, such as uploading and downloading files, running commands, and managing services.
 
 ## Basic API
 
@@ -45,7 +45,7 @@ g.ErrorHandler = func(e error) {
 
 The following example downloads a file from each remote host.
 The file is downloaded to a temporary directory created by the test framework and named `os.<hostname>`.
-See [iago_test.go](https://github.com/relab/iago/blob/master/iago_test.go#L81) for the complete example.
+See [iago_test.go](https://github.com/relab/iago/blob/master/iago_test.go#L81) for the complete example with logging.
 
 This example uses the `iagotest` package, which spawns docker containers and connects to them with SSH for testing.
 
@@ -69,7 +69,7 @@ func TestIago(t *testing.T) {
     return iago.Download{
       Src:  src,
       Dest: dest,
-			Perm: iago.NewPerm(0o644),
+      Perm: iago.NewPerm(0o644),
     }.Apply(ctx, host)
   })
 }
