@@ -18,11 +18,11 @@ import (
 )
 
 var (
-	once                      sync.Once
-	username, homeDir, sshDir string = initUserAndPaths()
+	once              sync.Once
+	username, homeDir string = initUserAndHomeDir()
 )
 
-func initUserAndPaths() (username, homeDir, sshDir string) {
+func initUserAndHomeDir() (username, homeDir string) {
 	once.Do(func() {
 		currentUser, err := user.Current()
 		if err != nil {
@@ -33,12 +33,8 @@ func initUserAndPaths() (username, homeDir, sshDir string) {
 		if err != nil {
 			panic("failed to get user home directory: " + err.Error())
 		}
-		sshDir = filepath.Join(homeDir, ".ssh")
-		if _, err := os.Stat(sshDir); errors.Is(err, fs.ErrNotExist) {
-			panic("ssh directory does not exist: " + sshDir)
-		}
 	})
-	return username, homeDir, sshDir
+	return username, homeDir
 }
 
 // ParseSSHConfig returns a ssh configuration object that can be used to create
