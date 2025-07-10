@@ -63,14 +63,19 @@ func TestClientConfigActuallyConnecting(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sshConfig, hostPort, err := iago.ClientConfig("yummy", configPath)
+	sshConfig, err := iago.ParseSSHConfig(configPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// skip host key checking for this test
-	sshConfig.HostKeyCallback = ssh.InsecureIgnoreHostKey()
+	sshClientConfig, err := sshConfig.ClientConfig("yummy")
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	_, err = ssh.Dial("tcp", hostPort, sshConfig)
+	// skip host key checking for this test
+	sshClientConfig.HostKeyCallback = ssh.InsecureIgnoreHostKey()
+
+	_, err = ssh.Dial("tcp", sshConfig.ConnectAddr("yummy"), sshClientConfig)
 	if err != nil {
 		t.Fatal(err)
 	}

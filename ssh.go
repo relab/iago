@@ -48,12 +48,16 @@ func DialSSH(name, addr string, cfg *ssh.ClientConfig) (Host, error) {
 // If sshConfigPath is empty, the default configuration files will be used.
 func NewSSHGroup(hostNames []string, sshConfigPath string) (g Group, err error) {
 	hosts := make([]Host, 0, len(hostNames))
+	config, err := ParseSSHConfig(sshConfigPath)
+	if err != nil {
+		return Group{}, err
+	}
 	for _, h := range hostNames {
-		clientCfg, addr, err := ClientConfig(h, sshConfigPath)
+		clientCfg, err := config.ClientConfig(h)
 		if err != nil {
 			return Group{}, err
 		}
-		host, err := DialSSH(h, addr, clientCfg)
+		host, err := DialSSH(h, config.ConnectAddr(h), clientCfg)
 		if err != nil {
 			return Group{}, err
 		}

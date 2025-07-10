@@ -1,7 +1,6 @@
 package iago
 
 import (
-	"cmp"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -42,45 +41,12 @@ func initUserAndPaths() (username, homeDir, sshDir string) {
 	return username, homeDir, sshDir
 }
 
-// ClientConfig returns a [ssh.ClientConfig] and a connection string (for dialing)
-// for the given host alias. If no configFile is provided, the default ssh config
-// file paths are used: ~/.ssh/config and /etc/ssh/ssh_config.
-func ClientConfig(hostAlias string, configFile string) (*ssh.ClientConfig, string, error) {
-	configFile = cmp.Or(configFile, filepath.Join(sshDir, "config"), filepath.Join("/", "etc", "ssh", "ssh_config"))
-	userConfig, err := decodeSSHConfig(configFile)
-	if err != nil {
-		return nil, "", err
+// ParseSSHConfig returns a ssh configuration object that can be used to create
+// a [ssh.ClientConfig] for a given host alias.
+func ParseSSHConfig(configFile string) (*sshConfig, error) {
+	if configFile == "" {
+		return nil, fmt.Errorf("iago: no ssh config file provided")
 	}
-
-	userKnownHostsFile := userConfig.get(hostAlias, "UserKnownHostsFile", "")
-	hostKeyCallback, err := getHostKeyCallback(strings.Split(userKnownHostsFile, " "))
-	if err != nil {
-		return nil, "", fmt.Errorf("iago: failed to create host key callback: %w", err)
-	}
-
-	signers := agentSigners()
-	identityFile := userConfig.get(hostAlias, "IdentityFile", "")
-	pubkey := fileSigner(identityFile)
-	if pubkey != nil {
-		signers = append(signers, pubkey)
-	}
-	if len(signers) == 0 {
-		// Cannot authenticate without any signers in ssh agent or the provided identity file.
-		// If the identity file contains a passphrase protected private key, this will fail
-		// as the passphrase cannot be provided here.
-		return nil, "", fmt.Errorf("iago: no valid authentication methods found for %s", hostAlias)
-	}
-
-	clientConfig := &ssh.ClientConfig{
-		Config:          ssh.Config{},
-		User:            userConfig.get(hostAlias, "User", username),
-		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signers...)},
-		HostKeyCallback: hostKeyCallback,
-	}
-	return clientConfig, userConfig.connect(hostAlias), nil
-}
-
-func decodeSSHConfig(configFile string) (*configWrapper, error) {
 	fd, err := os.Open(expand(configFile))
 	if err != nil {
 		return nil, fmt.Errorf("iago: failed to open ssh config file: %w", err)
@@ -91,28 +57,85 @@ func decodeSSHConfig(configFile string) (*configWrapper, error) {
 	if err != nil {
 		return nil, fmt.Errorf("iago: failed to decode ssh config file: %w", err)
 	}
-	return &configWrapper{decodedConfig}, nil
+	return &sshConfig{decodedConfig}, nil
 }
 
-type configWrapper struct {
+type sshConfig struct {
 	config *ssh_config.Config
 }
 
-func (cw *configWrapper) get(alias, key, defaultValue string) string {
-	val, err := cw.config.Get(alias, key)
+// ClientConfig returns a [ssh.ClientConfig] for the given host alias.
+func (cw *sshConfig) ClientConfig(hostAlias string) (*ssh.ClientConfig, error) {
+	userKnownHostsFile, err := cw.get(hostAlias, "UserKnownHostsFile")
 	if err != nil {
-		if defaultValue == "" {
-			return ssh_config.Default(key)
-		}
-		return defaultValue
+		return nil, err
 	}
-	return val
+	hostKeyCallback, err := getHostKeyCallback(strings.Split(userKnownHostsFile, " "))
+	if err != nil {
+		return nil, fmt.Errorf("iago: failed to create host key callback: %w", err)
+	}
+
+	signers := agentSigners()
+	identityFile, err := cw.get(hostAlias, "IdentityFile")
+	if err != nil {
+		return nil, err
+	}
+	pubkey := fileSigner(identityFile)
+	if pubkey != nil {
+		signers = append(signers, pubkey)
+	}
+	if len(signers) == 0 {
+		// Cannot authenticate without any signers in ssh agent or the provided identity file.
+		// If the identity file contains a passphrase protected private key, this will fail
+		// as the passphrase cannot be provided here.
+		return nil, fmt.Errorf("iago: no valid authentication methods found for %s", hostAlias)
+	}
+
+	user, err := cw.get(hostAlias, "User")
+	if err != nil {
+		return nil, err
+	}
+
+	clientConfig := &ssh.ClientConfig{
+		Config:          ssh.Config{},
+		User:            user,
+		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signers...)},
+		HostKeyCallback: hostKeyCallback,
+	}
+	return clientConfig, nil
 }
 
-func (cw *configWrapper) connect(hostAlias string) string {
-	hostname := cw.get(hostAlias, "Hostname", hostAlias)
-	port := cw.get(hostAlias, "Port", "")
+// ConnectAddr returns the connection address for the given host alias.
+// If no hostname is specified in the SSH config, it defaults to the provide host alias.
+// An empty string is returned if there was an error retrieving the hostname or port
+// for the host alias.
+func (cw *sshConfig) ConnectAddr(hostAlias string) string {
+	hostname, err := cw.get(hostAlias, "Hostname")
+	if err != nil {
+		return ""
+	}
+	// if no hostname is specified, use the host alias (SSH default behavior)
+	if hostname == "" {
+		hostname = hostAlias
+	}
+	port, err := cw.get(hostAlias, "Port")
+	if err != nil {
+		return ""
+	}
 	return net.JoinHostPort(hostname, port)
+}
+
+// get retrieves the value for the specified key for the given host alias.
+// If the value is not set in the config file, it returns the default value for that key.
+func (cw *sshConfig) get(alias, key string) (string, error) {
+	val, err := cw.config.Get(alias, key)
+	if err != nil {
+		return "", fmt.Errorf("iago: failed to get %s for %s: %w", key, alias, err)
+	}
+	if val == "" {
+		val = ssh_config.Default(key)
+	}
+	return val, nil
 }
 
 // fileSigner returns a SSH signer based on the private key in the specified IdentityFile.
