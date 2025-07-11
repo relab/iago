@@ -2,9 +2,11 @@ package iago
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"io"
+	"path/filepath"
 	"strings"
 
 	"github.com/pkg/sftp"
@@ -44,15 +46,30 @@ func DialSSH(name, addr string, cfg *ssh.ClientConfig) (Host, error) {
 	return &sshHost{name, env, client, sftpClient, sftpFS, make(map[string]any)}, nil
 }
 
-// NewSSHGroup returns a new group from the given host aliases. sshConfigPath determines the ssh_config file to use.
-// If sshConfigPath is empty, the default configuration files will be used.
-func NewSSHGroup(hostNames []string, sshConfigPath string) (g Group, err error) {
-	hosts := make([]Host, 0, len(hostNames))
-	config, err := ParseSSHConfig(sshConfigPath)
+// NewSSHGroup returns a new ssh group from the given host aliases. The sshConfigFile
+// argument specifies the ssh config file to use. If sshConfigFile is empty, the
+// default configuration files will be used: ~/.ssh/config and /etc/ssh/ssh_config.
+//
+// The host aliases should be defined in the ssh config file, and the config file
+// should contain the necessary information to connect to the hosts without a passphrase.
+// This usually means setting up the ssh-agent with the necessary keys beforehand (and
+// entering the passphrase), or specifying the passphrase-less key to use with the
+// IdentityFile option. Moreover, the config file should specify whether or not to use
+// strict host key checking using the StrictHostKeyChecking option. If strict host key
+// checking is enabled, the ssh server's host keys should be present in the known_hosts
+// files specified by UserKnownHostsFile (the default known_hosts files will be used if
+// this option is not specified).
+//
+// Finally, the specified hosts must all contain a authorized_keys file containing the
+// public key of the user running this program.
+func NewSSHGroup(hostAliases []string, sshConfigFile string) (g Group, err error) {
+	sshConfigFile = cmp.Or(sshConfigFile, filepath.Join(homeDir, ".ssh", "config"), filepath.Join("/", "etc", "ssh", "ssh_config"))
+	config, err := ParseSSHConfig(sshConfigFile)
 	if err != nil {
 		return Group{}, err
 	}
-	for _, h := range hostNames {
+	hosts := make([]Host, 0, len(hostAliases))
+	for _, h := range hostAliases {
 		clientCfg, err := config.ClientConfig(h)
 		if err != nil {
 			return Group{}, err
