@@ -43,12 +43,6 @@ func CreateSSHGroup(t testing.TB, n int, skip bool) (g iago.Group) {
 	// cleanup the network (will be called last due to LIFO)
 	t.Cleanup(cleanupNetwork(t, cli, network))
 
-	t.Cleanup(func() {
-		if err := g.Close(); err != nil {
-			t.Error(err)
-		}
-	})
-
 	hosts := make([]iago.Host, n)
 	for i := range n {
 		id, addr := createContainer(t, cli, network, string(pub))
@@ -66,6 +60,11 @@ func CreateSSHGroup(t testing.TB, n int, skip bool) (g iago.Group) {
 		}
 	}
 
+	t.Cleanup(func() {
+		if err := g.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	return iago.NewGroup(hosts)
 }
 
@@ -126,7 +125,6 @@ func createContainer(t testing.TB, cli *container.Container, networkID, pubKey s
 		},
 	}, &container.HostConfig{
 		PortBindings: container.PortMap{"22/tcp": {{}}}, // map ssh port to ephemeral port
-		AutoRemove:   true,
 	}, nil, "")
 	if err != nil {
 		t.Fatal(err)
@@ -303,11 +301,16 @@ func cleanupContainer(t testing.TB, cli *container.Container, network, container
 	return func() {
 		timeout := 1 // seconds to wait before forcefully killing the container
 		opts := container.StopOptions{Timeout: &timeout}
-		if err := cli.ContainerStop(context.Background(), containerID, opts); err != nil {
+		ctx := context.Background()
+		if err := cli.ContainerStop(ctx, containerID, opts); err != nil {
 			t.Errorf("Failed to stop container '%s': %v", containerID, err)
 		}
-		if err := cli.NetworkDisconnect(context.Background(), network, containerID, true); err != nil {
+		if err := cli.NetworkDisconnect(ctx, network, containerID, true); err != nil {
 			t.Errorf("Failed to disconnect container %s from network '%s': %v", containerID, network, err)
+		}
+		removeOpts := container.RemoveOptions{Force: true, RemoveVolumes: true}
+		if err := cli.ContainerRemove(ctx, containerID, removeOpts); err != nil {
+			t.Errorf("Failed to remove container '%s': %v", containerID, err)
 		}
 	}
 }
