@@ -56,7 +56,22 @@ func CreateSSHGroup(t testing.TB, n int, skip bool) (g iago.Group) {
 			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		})
 		if err != nil {
-			t.Fatal(err)
+			logs, logErr := cli.ContainerLogs(context.Background(), id, container.LogsOptions{
+				ShowStdout: true,
+				ShowStderr: true,
+				Timestamps: false,
+				Tail:       "all",
+			})
+			if logErr == nil {
+				defer logs.Close()
+				t.Logf("Logs from container %s:\n", id)
+				buf := new(bytes.Buffer)
+				io.Copy(buf, logs)
+				t.Log(buf.String())
+			} else {
+				t.Logf("Failed to get logs from container %s: %v", id, logErr)
+			}
+			t.Fatalf("Failed to dial SSH: %v", err)
 		}
 	}
 
