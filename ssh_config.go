@@ -75,22 +75,22 @@ func (cw *sshConfig) ClientConfig(hostAlias string) (*ssh.ClientConfig, error) {
 		return nil, fmt.Errorf("iago: no valid authentication methods found for %s", hostAlias)
 	}
 
-	usr, err := cw.get(hostAlias, "User")
+	username, err := cw.get(hostAlias, "User")
 	if err != nil {
 		return nil, err
 	}
-	if usr == "" {
+	if username == "" {
 		// default to the current user if User not specified in the config file
 		currentUser, err := user.Current()
 		if err != nil {
 			return nil, fmt.Errorf("iago: failed to get current user: %w", err)
 		}
-		usr = currentUser.Username
+		username = currentUser.Username
 	}
 
 	clientConfig := &ssh.ClientConfig{
 		Config:          ssh.Config{},
-		User:            usr,
+		User:            username,
 		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signers...)},
 		HostKeyCallback: hostKeyCallback,
 	}
