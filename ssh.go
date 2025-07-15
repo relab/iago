@@ -61,26 +61,26 @@ func DialSSH(name, addr string, cfg *ssh.ClientConfig) (Host, error) {
 //
 // Finally, the specified hosts must all contain a authorized_keys file containing the
 // public key of the user running this program.
-func NewSSHGroup(hostAliases []string, sshConfigFile string) (g Group, err error) {
+func NewSSHGroup(hostAliases []string, sshConfigFile string) (group Group, err error) {
 	if sshConfigFile == "" {
 		if err = initHomeDir(); err != nil {
-			return g, err
+			return group, err
 		}
 		sshConfigFile = filepath.Join(homeDir, ".ssh", "config")
 	}
 	config, err := ParseSSHConfig(sshConfigFile)
 	if err != nil {
-		return g, err
+		return group, err
 	}
 	hosts := make([]Host, 0, len(hostAliases))
 	for _, h := range hostAliases {
 		clientCfg, err := config.ClientConfig(h)
 		if err != nil {
-			return g, err
+			return group, err
 		}
 		host, err := DialSSH(h, config.ConnectAddr(h), clientCfg)
 		if err != nil {
-			return g, err
+			return group, err
 		}
 		hosts = append(hosts, host)
 	}

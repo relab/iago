@@ -23,7 +23,7 @@ func initHomeDir() (err error) {
 	homeDir, err = sync.OnceValues(func() (string, error) {
 		return os.UserHomeDir()
 	})()
-	return err
+	return fmt.Errorf("iago: failed to initialize home directory: %w", err)
 }
 
 // ParseSSHConfig returns a ssh configuration object that can be used to create
@@ -33,7 +33,7 @@ func ParseSSHConfig(configFile string) (*sshConfig, error) {
 		return nil, fmt.Errorf("iago: no ssh config file provided")
 	}
 	if err := initHomeDir(); err != nil {
-		return nil, fmt.Errorf("iago: failed to initialize home directory: %w", err)
+		return nil, err
 	}
 	fd, err := os.Open(expand(configFile))
 	if err != nil {
