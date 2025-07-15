@@ -2,7 +2,6 @@ package iago
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"errors"
 	"io"
@@ -48,7 +47,7 @@ func DialSSH(name, addr string, cfg *ssh.ClientConfig) (Host, error) {
 
 // NewSSHGroup returns a new ssh group from the given host aliases. The sshConfigFile
 // argument specifies the ssh config file to use. If sshConfigFile is empty, the
-// default configuration files will be used: ~/.ssh/config and /etc/ssh/ssh_config.
+// default configuration files will be used: ~/.ssh/config.
 //
 // The host aliases should be defined in the ssh config file, and the config file
 // should contain the necessary information to connect to the hosts without a passphrase.
@@ -62,21 +61,26 @@ func DialSSH(name, addr string, cfg *ssh.ClientConfig) (Host, error) {
 //
 // Finally, the specified hosts must all contain a authorized_keys file containing the
 // public key of the user running this program.
-func NewSSHGroup(hostAliases []string, sshConfigFile string) (g Group, err error) {
-	sshConfigFile = cmp.Or(sshConfigFile, filepath.Join(homeDir, ".ssh", "config"), filepath.Join("/", "etc", "ssh", "ssh_config"))
+func NewSSHGroup(hostAliases []string, sshConfigFile string) (group Group, err error) {
+	if sshConfigFile == "" {
+		if err = initHomeDir(); err != nil {
+			return group, err
+		}
+		sshConfigFile = filepath.Join(homeDir, ".ssh", "config")
+	}
 	config, err := ParseSSHConfig(sshConfigFile)
 	if err != nil {
-		return Group{}, err
+		return group, err
 	}
 	hosts := make([]Host, 0, len(hostAliases))
 	for _, h := range hostAliases {
 		clientCfg, err := config.ClientConfig(h)
 		if err != nil {
-			return Group{}, err
+			return group, err
 		}
 		host, err := DialSSH(h, config.ConnectAddr(h), clientCfg)
 		if err != nil {
-			return Group{}, err
+			return group, err
 		}
 		hosts = append(hosts, host)
 	}
