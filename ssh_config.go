@@ -9,7 +9,6 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/kevinburke/ssh_config"
 	"golang.org/x/crypto/ssh"
@@ -17,15 +16,13 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
-var (
-	once    sync.Once
-	homeDir string
-)
+var homeDir string
 
 func initHomeDir() (err error) {
-	once.Do(func() {
-		homeDir, err = os.UserHomeDir()
-	})
+	if homeDir != "" {
+		return nil
+	}
+	homeDir, err = os.UserHomeDir()
 	return err
 }
 
