@@ -17,13 +17,19 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
-var homeDir string
+var (
+	homeDir     string
+	homeDirOnce = sync.OnceValues(func() (string, error) {
+		return os.UserHomeDir()
+	})
+)
 
 func initHomeDir() (err error) {
-	homeDir, err = sync.OnceValues(func() (string, error) {
-		return os.UserHomeDir()
-	})()
-	return fmt.Errorf("iago: failed to initialize home directory: %w", err)
+	homeDir, err = homeDirOnce()
+	if err != nil {
+		return fmt.Errorf("iago: failed to initialize home directory: %w", err)
+	}
+	return nil
 }
 
 // ParseSSHConfig returns a ssh configuration object that can be used to create
