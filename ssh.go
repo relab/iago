@@ -2,7 +2,6 @@ package iago
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"errors"
 	"io"
@@ -48,7 +47,7 @@ func DialSSH(name, addr string, cfg *ssh.ClientConfig) (Host, error) {
 
 // NewSSHGroup returns a new ssh group from the given host aliases. The sshConfigFile
 // argument specifies the ssh config file to use. If sshConfigFile is empty, the
-// default configuration files will be used: ~/.ssh/config and /etc/ssh/ssh_config.
+// default configuration files will be used: ~/.ssh/config.
 //
 // The host aliases should be defined in the ssh config file, and the config file
 // should contain the necessary information to connect to the hosts without a passphrase.
@@ -67,8 +66,8 @@ func NewSSHGroup(hostAliases []string, sshConfigFile string) (g Group, err error
 		if err = initHomeDir(); err != nil {
 			return g, err
 		}
+		sshConfigFile = filepath.Join(homeDir, ".ssh", "config")
 	}
-	sshConfigFile = cmp.Or(sshConfigFile, filepath.Join(homeDir, ".ssh", "config"), filepath.Join("/", "etc", "ssh", "ssh_config"))
 	config, err := ParseSSHConfig(sshConfigFile)
 	if err != nil {
 		return g, err
