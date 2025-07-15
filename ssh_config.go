@@ -18,23 +18,15 @@ import (
 )
 
 var (
-	once              sync.Once
-	username, homeDir string = initUserAndHomeDir()
+	once    sync.Once
+	homeDir string
 )
 
-func initUserAndHomeDir() (username, homeDir string) {
+func initHomeDir() (err error) {
 	once.Do(func() {
-		currentUser, err := user.Current()
-		if err != nil {
-			panic("failed to get current user: " + err.Error())
-		}
-		username = currentUser.Username
 		homeDir, err = os.UserHomeDir()
-		if err != nil {
-			panic("failed to get user home directory: " + err.Error())
-		}
 	})
-	return username, homeDir
+	return err
 }
 
 // ParseSSHConfig returns a ssh configuration object that can be used to create
@@ -42,6 +34,9 @@ func initUserAndHomeDir() (username, homeDir string) {
 func ParseSSHConfig(configFile string) (*sshConfig, error) {
 	if configFile == "" {
 		return nil, fmt.Errorf("iago: no ssh config file provided")
+	}
+	if err := initHomeDir(); err != nil {
+		return nil, fmt.Errorf("iago: failed to initialize home directory: %w", err)
 	}
 	fd, err := os.Open(expand(configFile))
 	if err != nil {
@@ -83,18 +78,22 @@ func (cw *sshConfig) ClientConfig(hostAlias string) (*ssh.ClientConfig, error) {
 		return nil, fmt.Errorf("iago: no valid authentication methods found for %s", hostAlias)
 	}
 
-	user, err := cw.get(hostAlias, "User")
+	usr, err := cw.get(hostAlias, "User")
 	if err != nil {
 		return nil, err
 	}
-	if user == "" {
-		// default to the current user if user not specified in the config file
-		user = username
+	if usr == "" {
+		// default to the current user if User not specified in the config file
+		currentUser, err := user.Current()
+		if err != nil {
+			return nil, fmt.Errorf("iago: failed to get current user: %w", err)
+		}
+		usr = currentUser.Username
 	}
 
 	clientConfig := &ssh.ClientConfig{
 		Config:          ssh.Config{},
-		User:            user,
+		User:            usr,
 		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signers...)},
 		HostKeyCallback: hostKeyCallback,
 	}
