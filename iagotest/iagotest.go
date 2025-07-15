@@ -37,7 +37,7 @@ var (
 // CreateSSHGroup starts n docker containers and connects to them with ssh.
 // If skip is true, this function will call t.Skip() if docker is unavailable.
 func CreateSSHGroup(t testing.TB, n int, skip bool) (g iago.Group) {
-	signer, _, pub := generateKey(t)
+	signer, _, _ := generateKey(t)
 
 	cli, network := setupContainerEnvironment(t, skip)
 	// cleanup the network (will be called last due to LIFO)
@@ -45,7 +45,7 @@ func CreateSSHGroup(t testing.TB, n int, skip bool) (g iago.Group) {
 
 	hosts := make([]iago.Host, n)
 	for i := range n {
-		id, addr := createContainer(t, cli, network, string(pub))
+		id, addr := createContainer(t, cli, network, signer)
 		t.Cleanup(cleanupContainer(t, cli, network, id))
 		t.Logf("Created container %s with ssh address %s", id, addr)
 
@@ -131,9 +131,9 @@ func buildImage(t testing.TB, cli *container.Container) {
 	}
 }
 
-func createContainer(t testing.TB, cli *container.Container, networkID, pubKey string) (name, addr string) {
+func createContainer(t testing.TB, cli *container.Container, networkID string, signer ssh.Signer) (name, addr string) {
 	res, err := cli.ContainerCreate(context.Background(), &container.Config{
-		Env:   []string{"AUTHORIZED_KEYS=" + pubKey},
+		Env:   []string{"AUTHORIZED_KEYS=" + string(ssh.MarshalAuthorizedKey(signer.PublicKey()))},
 		Image: tag,
 		ExposedPorts: container.PortSet{
 			"22/tcp": struct{}{},
@@ -174,6 +174,13 @@ func createContainer(t testing.TB, cli *container.Container, networkID, pubKey s
 	if addr == "" {
 		t.Fatal("no port bindings found after 10ms")
 	}
+	if err := waitForSSHReady(addr, &ssh.ClientConfig{
+		User:            "root",
+		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+	}, 10*time.Second); err != nil {
+		t.Fatalf("SSH server not ready for container %s: %v", name, err)
+	}
 	return name, addr
 }
 
@@ -183,6 +190,19 @@ func sshPortBinding(details container.InspectResponse) string {
 		return ""
 	}
 	return "localhost:" + bindings[0].HostPort
+}
+
+func waitForSSHReady(addr string, config *ssh.ClientConfig, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		conn, err := ssh.Dial("tcp", addr, config)
+		if err == nil {
+			conn.Close()
+			return nil
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return fmt.Errorf("ssh server not ready on %s after %v", addr, timeout)
 }
 
 func createNetwork(t testing.TB, cli *container.Container) string {
@@ -234,6 +254,7 @@ func prepareBuildContext() (r io.ReadCloser, err error) {
 
 // sshKeyFiles represents the paths to SSH key files created for testing
 type sshKeyFiles struct {
+	signer         ssh.Signer
 	privateKeyPath string
 	publicKeyPath  string
 	publicKeyData  []byte
@@ -243,7 +264,7 @@ type sshKeyFiles struct {
 // Returns the file paths and public key data for use in tests.
 func setupSSHKeys(t testing.TB, tmpDir string) sshKeyFiles {
 	t.Helper()
-	_, priv, pub := generateKey(t)
+	signer, priv, pub := generateKey(t)
 
 	privKeyFile := filepath.Join(tmpDir, "id_ed25519")
 	if err := os.WriteFile(privKeyFile, priv, 0o600); err != nil {
@@ -255,6 +276,7 @@ func setupSSHKeys(t testing.TB, tmpDir string) sshKeyFiles {
 	}
 
 	return sshKeyFiles{
+		signer:         signer,
 		privateKeyPath: privKeyFile,
 		publicKeyPath:  pubKeyFile,
 		publicKeyData:  pub,
@@ -291,9 +313,9 @@ type containerInfo struct {
 }
 
 // createContainerWithInfo creates a container and returns structured information about it
-func createContainerWithInfo(t testing.TB, cli *container.Container, network, pubKey, hostAlias string) containerInfo {
+func createContainerWithInfo(t testing.TB, cli *container.Container, network, hostAlias string, signer ssh.Signer) containerInfo {
 	t.Helper()
-	id, addr := createContainer(t, cli, network, pubKey)
+	id, addr := createContainer(t, cli, network, signer)
 
 	_, port, err := net.SplitHostPort(addr)
 	if err != nil {

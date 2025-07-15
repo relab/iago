@@ -16,7 +16,7 @@ func TestClientConfigActuallyConnecting(t *testing.T) {
 	// cleanup the network (will be called last due to LIFO)
 	t.Cleanup(cleanupNetwork(t, cli, network))
 
-	containerInfo := createContainerWithInfo(t, cli, network, string(keyFiles.publicKeyData), "yummy")
+	containerInfo := createContainerWithInfo(t, cli, network, "yummy", keyFiles.signer)
 	t.Cleanup(cleanupContainer(t, cli, network, containerInfo.id))
 
 	configEntry := sshConfigEntry("yummy", "127.0.0.1", "root", keyFiles.privateKeyPath, containerInfo.port)

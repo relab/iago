@@ -27,7 +27,7 @@ func TestNewSSHGroup(t *testing.T) {
 	// Create containers and set up individual cleanup for each
 	for i := range numContainers {
 		hostAlias := fmt.Sprintf("test-host-%d", i+1)
-		containerInfo := createContainerWithInfo(t, cli, network, string(keyFiles.publicKeyData), hostAlias)
+		containerInfo := createContainerWithInfo(t, cli, network, hostAlias, keyFiles.signer)
 		containerInfos[i] = containerInfo
 		t.Cleanup(cleanupContainer(t, cli, network, containerInfo.id))
 	}
