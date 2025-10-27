@@ -1,9 +1,9 @@
-FROM ubuntu:rolling
+FROM alpine:latest
 
-RUN apt-get update && \
-    apt-get install -y openssh-server && \
-    mkdir -p /var/run/sshd && \
-    useradd -m -s /bin/bash root || true
+RUN apk add --no-cache openssh lsb-release && \
+    ssh-keygen -A && \
+    mkdir -p /root/.ssh && \
+    chmod 700 /root/.ssh
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
