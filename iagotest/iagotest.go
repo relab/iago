@@ -65,9 +65,7 @@ func CreateSSHGroup(t testing.TB, n int, skip bool) (g iago.Group) {
 			if logErr == nil {
 				defer logs.Close()
 				t.Logf("Logs from container %s:\n", id)
-				buf := new(bytes.Buffer)
-				io.Copy(buf, logs)
-				t.Log(buf.String())
+				io.Copy(t.Output(), logs)
 			} else {
 				t.Logf("Failed to get logs from container %s: %v", id, logErr)
 			}
