@@ -118,13 +118,12 @@ func buildImage(t testing.TB, cli *container.Container) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		err = res.Close()
-		if err != nil {
+	t.Cleanup(func() {
+		if err = res.Close(); err != nil {
 			t.Error(err)
 		}
-	}()
-	if _, err = io.Copy(os.Stdout, res); err != nil {
+	})
+	if err = build.ConsumeStream(res, t.Output()); err != nil {
 		t.Error(err)
 	}
 }
