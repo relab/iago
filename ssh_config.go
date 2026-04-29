@@ -116,6 +116,8 @@ func (cw *sshConfig) ConnectAddr(hostAlias string) string {
 	if hostname == "" {
 		hostname = hostAlias
 	}
+	// Expand the %h token that OpenSSH substitutes with the original hostname.
+	hostname = strings.ReplaceAll(hostname, "%h", hostAlias)
 	port, err := cw.get(hostAlias, "Port")
 	if err != nil {
 		return ""

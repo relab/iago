@@ -42,6 +42,8 @@ func TestConnectAddr(t *testing.T) {
 		{"127.0.1.2_Matches_127.*", "127.0.1.2", "127.0.0.1:22"},
 		{"Connect*PrefixMatch", "ConnectTest", "ConnectTest:1234"},
 		{"ArbitraryHostMatchesWildcard", "asdf", "asdf:22"},
+		{"HostnameExpandsPercH", "proxy-target", "proxy-target.example.com:2222"},
+		{"JumpBoxHostname", "jumpbox", "jump.example.com:22"},
 	}
 
 	for _, tt := range tests {
@@ -69,6 +71,8 @@ func TestClientConfig(t *testing.T) {
 		{"127.0.1.2_Matches_127.*", "127.0.1.2", "testuser"},
 		{"Connect*PrefixMatches", "ConnectTest", "testuser2"},
 		{"ArbitraryHostMatchesWildcard", "asdf", "testuser2"},
+		{"ProxyTargetUser", "proxy-target", "proxyuser"},
+		{"JumpBoxUser", "jumpbox", "jumpuser"},
 	}
 
 	for _, tt := range tests {
@@ -85,6 +89,35 @@ func TestClientConfig(t *testing.T) {
 			}
 			if len(clientConfig.Auth) < 1 {
 				t.Errorf("ClientConfig(%s): Auth has no methods", tt.hostAlias)
+			}
+		})
+	}
+}
+
+func TestProxyJumpConfig(t *testing.T) {
+	config, err := ParseSSHConfig("testdata/config")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name      string
+		hostAlias string
+		wantProxy string
+	}{
+		{"ProxyJumpSet", "proxy-target", "jumpbox"},
+		{"ProxyJumpNotSet", "localhost", ""},
+		{"ProxyJumpNotSetJumpbox", "jumpbox", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			proxy, err := config.get(tt.hostAlias, "ProxyJump")
+			if err != nil {
+				t.Fatalf("get ProxyJump(%s): unexpected error: %v", tt.hostAlias, err)
+			}
+			if proxy != tt.wantProxy {
+				t.Errorf("get ProxyJump(%s) = %q, want %q", tt.hostAlias, proxy, tt.wantProxy)
 			}
 		})
 	}

@@ -7,5 +7,18 @@ Host localhost 127.*
 Host Connect*
     Port 1234
 
+Host proxy-target
+    Hostname %h.example.com
+    Port 2222
+    User proxyuser
+    ProxyJump jumpbox
+    StrictHostKeyChecking no
+
+Host jumpbox
+    Hostname jump.example.com
+    Port 22
+    User jumpuser
+    StrictHostKeyChecking no
+
 Host *
     User testuser2
