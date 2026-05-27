@@ -2,6 +2,7 @@ package iago
 
 import (
 	"testing"
+	"time"
 )
 
 func TestParseSSHConfigError(t *testing.T) {
@@ -66,13 +67,14 @@ func TestClientConfig(t *testing.T) {
 		name      string
 		hostAlias string
 		wantUser  string
+		wantDial  time.Duration
 	}{
-		{"localhost", "localhost", "testuser"},
-		{"127.0.1.2_Matches_127.*", "127.0.1.2", "testuser"},
-		{"Connect*PrefixMatches", "ConnectTest", "testuser2"},
-		{"ArbitraryHostMatchesWildcard", "asdf", "testuser2"},
-		{"ProxyTargetUser", "proxy-target", "proxyuser"},
-		{"JumpBoxUser", "jumpbox", "jumpuser"},
+		{"localhost", "localhost", "testuser", ConnectTimeout},
+		{"127.0.1.2_Matches_127.*", "127.0.1.2", "testuser", ConnectTimeout},
+		{"Connect*PrefixMatches", "ConnectTest", "testuser2", ConnectTimeout},
+		{"ArbitraryHostMatchesWildcard", "asdf", "testuser2", ConnectTimeout},
+		{"ProxyTargetUser", "proxy-target", "proxyuser", 25 * time.Second},
+		{"JumpBoxUser", "jumpbox", "jumpuser", 0},
 	}
 
 	for _, tt := range tests {
@@ -86,6 +88,9 @@ func TestClientConfig(t *testing.T) {
 			}
 			if clientConfig.User != tt.wantUser {
 				t.Errorf("ClientConfig(%s).User = %s, want %s", tt.hostAlias, clientConfig.User, tt.wantUser)
+			}
+			if clientConfig.Timeout != tt.wantDial {
+				t.Errorf("ClientConfig(%s).Timeout = %v, want %v", tt.hostAlias, clientConfig.Timeout, tt.wantDial)
 			}
 			if len(clientConfig.Auth) < 1 {
 				t.Errorf("ClientConfig(%s): Auth has no methods", tt.hostAlias)

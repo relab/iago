@@ -38,7 +38,13 @@ func DialSSH(name, addr string, cfg *ssh.ClientConfig) (Host, error) {
 // SSH connection to a jump host. The jump client is owned by the returned Host and
 // closed when the Host is closed.
 func dialViaProxy(name, addr string, cfg *ssh.ClientConfig, jump *ssh.Client) (Host, error) {
-	conn, err := jump.Dial("tcp", addr)
+	ctx := context.Background()
+	if cfg.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, cfg.Timeout)
+		defer cancel()
+	}
+	conn, err := jump.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return nil, err
 	}

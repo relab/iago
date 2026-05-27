@@ -8,14 +8,22 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/kevinburke/ssh_config"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
+
+// ConnectTimeout is the default timeout for establishing an SSH connection.
+// It is used when a host does not set ConnectTimeout in the SSH config.
+// The zero value means no timeout, which preserves the prior behavior of ssh.ClientConfig.Timeout.
+// Callers can set this to a non-zero value to apply a default dial timeout across all hosts.
+var ConnectTimeout time.Duration
 
 var (
 	homeDir     string
@@ -65,6 +73,11 @@ func (cw *sshConfig) ClientConfig(hostAlias string) (*ssh.ClientConfig, error) {
 		return nil, err
 	}
 
+	timeout, err := cw.connectTimeout(hostAlias)
+	if err != nil {
+		return nil, err
+	}
+
 	signers := agentSigners()
 	identityFile, err := cw.get(hostAlias, "IdentityFile")
 	if err != nil {
@@ -99,8 +112,32 @@ func (cw *sshConfig) ClientConfig(hostAlias string) (*ssh.ClientConfig, error) {
 		User:            username,
 		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signers...)},
 		HostKeyCallback: hostKeyCallback,
+		Timeout:         timeout,
 	}
 	return clientConfig, nil
+}
+
+// connectTimeout returns the dial timeout for the given host alias.
+//
+// The timeout is taken from the SSH config's ConnectTimeout option when set.
+// Otherwise, the package-level ConnectTimeout default is used.
+func (cw *sshConfig) connectTimeout(hostAlias string) (time.Duration, error) {
+	connectTimeout, err := cw.get(hostAlias, "ConnectTimeout")
+	if err != nil {
+		return 0, err
+	}
+	connectTimeout = strings.TrimSpace(strings.ToLower(connectTimeout))
+	if connectTimeout == "" || connectTimeout == "none" {
+		return ConnectTimeout, nil
+	}
+	seconds, err := strconv.Atoi(connectTimeout)
+	if err != nil {
+		return 0, fmt.Errorf("iago: invalid ConnectTimeout for %s: %q", hostAlias, connectTimeout)
+	}
+	if seconds < 0 {
+		return 0, fmt.Errorf("iago: invalid ConnectTimeout for %s: %q", hostAlias, connectTimeout)
+	}
+	return time.Duration(seconds) * time.Second, nil
 }
 
 // ConnectAddr returns the connection address for the given host alias.

@@ -10,6 +10,7 @@ Host Connect*
 Host proxy-target
     Hostname %h.example.com
     Port 2222
+    ConnectTimeout 25
     User proxyuser
     ProxyJump jumpbox
     StrictHostKeyChecking no
@@ -17,6 +18,7 @@ Host proxy-target
 Host jumpbox
     Hostname jump.example.com
     Port 22
+    ConnectTimeout 0
     User jumpuser
     StrictHostKeyChecking no
 
