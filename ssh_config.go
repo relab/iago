@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -245,4 +246,135 @@ func expand(path string) string {
 		return filepath.Join(homeDir, path[2:])
 	}
 	return path
+}
+
+// hostRangeRE matches a single PREFIX[lo-hi]SUFFIX numeric range within a host
+// token. Prefix and suffix are captured so non-numeric parts of the alias are
+// preserved (e.g. "rack2-node[1-4]").
+var hostRangeRE = regexp.MustCompile(`^(.*)\[(\d+)-(\d+)\](.*)$`)
+
+// ParseHosts resolves a comma-separated host specification to a slice of SSH
+// host aliases. Each token in the spec is handled as follows:
+//
+//   - A PREFIX[lo-hi]SUFFIX token with numeric bounds is expanded to individual
+//     aliases (e.g. "bb[1-30]" → bb1, bb2, …, bb30) without consulting the SSH
+//     config.
+//   - A token containing *, ?, or a non-numeric [...] bracket expression is
+//     treated as a glob and matched against the non-wildcard Host entries read
+//     from configFile. Wildcard SSH stanzas (e.g. "Host bb*") are skipped
+//     because they do not enumerate specific host names.
+//   - Any other token is returned verbatim as a literal alias.
+//
+// If configFile is empty, ~/.ssh/config is used. The config file is parsed at
+// most once, only when a glob token is encountered.
+func ParseHosts(spec, configFile string) ([]string, error) {
+	var (
+		hosts  []string
+		config *sshConfig
+	)
+	for _, token := range splitHostSpec(spec) {
+		if m := hostRangeRE.FindStringSubmatch(token); m != nil {
+			expanded, err := expandHostToken(m)
+			if err != nil {
+				return nil, err
+			}
+			hosts = append(hosts, expanded...)
+		} else if strings.ContainsAny(token, "*?[") {
+			// Lazy-load the SSH config only if we encounter a glob token, to avoid
+			// unnecessary parsing. We only need to parse once; hence the nil check.
+			if config == nil {
+				if configFile == "" {
+					if err := initHomeDir(); err != nil {
+						return nil, err
+					}
+					configFile = filepath.Join(homeDir, ".ssh", "config")
+				}
+				var err error
+				config, err = ParseSSHConfig(configFile)
+				if err != nil {
+					return nil, err
+				}
+			}
+			matched, err := config.hostAliases(token)
+			if err != nil {
+				return nil, err
+			}
+			hosts = append(hosts, matched...)
+		} else {
+			hosts = append(hosts, token)
+		}
+	}
+	return hosts, nil
+}
+
+// splitHostSpec splits a comma-separated host specification into trimmed,
+// non-empty tokens.
+func splitHostSpec(spec string) []string {
+	parts := strings.Split(strings.TrimSpace(spec), ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// expandHostToken expands a matched PREFIX[lo-hi]SUFFIX host range into
+// individual aliases. m is the result of hostRangeRE.FindStringSubmatch,
+// where m[0] is the full token, m[1] the prefix, m[2] lo, m[3] hi, m[4]
+// the suffix. Returns an error if the prefix or suffix contain brackets
+// (indicating a second range in the same token) or if the bounds are reversed.
+func expandHostToken(m []string) ([]string, error) {
+	token, prefix, loStr, hiStr, suffix := m[0], m[1], m[2], m[3], m[4]
+	if strings.ContainsAny(prefix, "[]") || strings.ContainsAny(suffix, "[]") {
+		return nil, fmt.Errorf("iago: malformed host range %q: at most one [lo-hi] range per host is supported", token)
+	}
+	lo, err := strconv.Atoi(loStr)
+	if err != nil {
+		return nil, fmt.Errorf("iago: malformed host range %q: invalid bounds: %w", token, err)
+	}
+	hi, err := strconv.Atoi(hiStr)
+	if err != nil {
+		return nil, fmt.Errorf("iago: malformed host range %q: invalid bounds: %w", token, err)
+	}
+	if lo > hi {
+		return nil, fmt.Errorf("iago: malformed host range %q: %d > %d", token, lo, hi)
+	}
+	// Preserve zero-padding only when at least one bound has a leading zero.
+	hasLeadingZero := (len(loStr) > 1 && loStr[0] == '0') || (len(hiStr) > 1 && hiStr[0] == '0')
+	width := max(len(loStr), len(hiStr))
+	out := make([]string, 0, hi-lo+1)
+	for i := lo; i <= hi; i++ {
+		if hasLeadingZero {
+			out = append(out, fmt.Sprintf("%s%0*d%s", prefix, width, i, suffix))
+		} else {
+			out = append(out, fmt.Sprintf("%s%d%s", prefix, i, suffix))
+		}
+	}
+	return out, nil
+}
+
+// hostAliases returns the non-wildcard Host aliases in c that match the given
+// glob pattern. Stanzas whose Host patterns contain SSH wildcard characters
+// (*, ?, !, []) are skipped because they cannot enumerate specific host names.
+// Aliases are returned in config-file order.
+func (cw *sshConfig) hostAliases(pattern string) ([]string, error) {
+	var hosts []string
+	for _, h := range cw.config.Hosts {
+		for _, p := range h.Patterns {
+			alias := p.String()
+			if strings.ContainsAny(alias, "*?![]") {
+				continue
+			}
+			matched, err := filepath.Match(pattern, alias)
+			if err != nil {
+				return nil, fmt.Errorf("iago: invalid glob pattern %q: %w", pattern, err)
+			}
+			if matched {
+				hosts = append(hosts, alias)
+			}
+		}
+	}
+	return hosts, nil
 }

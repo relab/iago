@@ -1,0 +1,22 @@
+Host bb1
+    HostName 10.0.0.1
+    StrictHostKeyChecking no
+
+Host bb2
+    HostName 10.0.0.2
+    StrictHostKeyChecking no
+
+Host bb3
+    HostName 10.0.0.3
+    StrictHostKeyChecking no
+
+Host bb*
+    User homer
+    StrictHostKeyChecking no
+
+Host nebula
+    HostName nebula.example.com
+    StrictHostKeyChecking no
+
+Host *
+    User testuser
