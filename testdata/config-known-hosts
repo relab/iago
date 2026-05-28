@@ -1,0 +1,23 @@
+Host myhost
+    Hostname myhost
+    Port 22
+    UserKnownHostsFile testdata/known_hosts
+    StrictHostKeyChecking yes
+
+Host myhost-port
+    Hostname myhost
+    Port 2222
+    UserKnownHostsFile testdata/known_hosts
+    StrictHostKeyChecking yes
+
+Host no-strict
+    Hostname myhost
+    Port 22
+    UserKnownHostsFile testdata/known_hosts
+    StrictHostKeyChecking no
+
+Host nomatch
+    Hostname no-such-host
+    Port 22
+    UserKnownHostsFile testdata/known_hosts
+    StrictHostKeyChecking yes

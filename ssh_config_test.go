@@ -131,6 +131,56 @@ func TestProxyJumpConfig(t *testing.T) {
 	}
 }
 
+// TestKnownHostAlgorithms exercises the knownHostAlgorithms helper against the
+// testdata/known_hosts fixture. The fixture contains:
+//   - two key types for "myhost" at the default port (22),
+//   - a single key type for "myhost" at a non-default port (2222), whose
+//     known_hosts entry uses the "[host]:port" format,
+//   - an entry for "other-host" that must never match "myhost" lookups,
+//   - a hashed entry (starting with "|1|") matched via HMAC-SHA1 by matchesHashedHost.
+func TestKnownHostAlgorithms(t *testing.T) {
+	config, err := ParseSSHConfig("testdata/config-known-hosts")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name      string
+		hostAlias string
+		wantAlgos []string
+	}{
+		{
+			name:      "StandardPortTwoKeyTypes",
+			hostAlias: "myhost",
+			wantAlgos: []string{"ssh-ed25519", "ecdsa-sha2-nistp256"},
+		},
+		{
+			name:      "NonDefaultPortBracketNotation",
+			hostAlias: "myhost-port",
+			wantAlgos: []string{"ssh-rsa"},
+		},
+		{
+			name:      "StrictHostKeyCheckingNoReturnsNil",
+			hostAlias: "no-strict",
+			wantAlgos: nil,
+		},
+		{
+			name:      "NoMatchReturnsNil",
+			hostAlias: "nomatch",
+			wantAlgos: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := config.knownHostAlgorithms(tt.hostAlias)
+			if !slices.Equal(got, tt.wantAlgos) {
+				t.Errorf("knownHostAlgorithms(%q) = %v, want %v", tt.hostAlias, got, tt.wantAlgos)
+			}
+		})
+	}
+}
+
 // TestParseHostsRange covers numeric range expansion without consulting the
 // SSH config. Passing an empty configFile is safe here because no glob token
 // appears in any of the specs.

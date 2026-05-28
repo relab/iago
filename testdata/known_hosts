@@ -1,0 +1,10 @@
+# Sample known_hosts for testing knownHostAlgorithms.
+# Standard-port host with two key types.
+myhost ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBqkSEFpXWQk7AJiHDi9bnMzxGJFzOtMkBvMa7VKTEST
+myhost ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBBPTESTKEYDATAFAKEabcdefghijklmnopqrstuvwxyz0123456789ABCDEFTEST==
+# Non-default port entry (produces [host]:port normalization).
+[myhost]:2222 ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCTESTKEYDATAFAKEabcdefghijklmnopqrstuvwxyz0123456789ABCDEFTEST==
+# A different host that must not match myhost lookups.
+other-host ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINONMATCHINGKEYabcdefghijklmnopqrstuvwxyzTEST
+# Hashed entry (matched via HMAC-SHA1 by matchesHashedHost).
+|1|abc123salt==|def456hash== ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHASHEDKEYabcdefghijklmnopqrstuvwxyzTEST

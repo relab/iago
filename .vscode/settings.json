@@ -6,6 +6,7 @@
 		".git/{index,*refs,*HEAD}",
 		".vscode",
 		".vscode-insiders",
+        "testdata",
 		"go.mod",
 		"go.sum"
 	],
@@ -22,6 +23,9 @@
         "keygen",
         "knownhosts",
         "mrand",
+        "myhost",
+        "nistp",
+        "nomatch",
         "Println",
         "proxyuser",
         "relab",
