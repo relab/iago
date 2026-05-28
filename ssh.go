@@ -90,7 +90,7 @@ func newHostFromClient(name string, client *ssh.Client) (Host, error) {
 // files specified by UserKnownHostsFile (the default known_hosts files will be used if
 // this option is not specified).
 //
-// The specified hosts must all contain a authorized_keys file containing the
+// The specified hosts must all contain an authorized_keys file containing the
 // public key of the user running this program.
 //
 // When several aliases share the same ProxyJump spec, a single TCP/SSH connection
