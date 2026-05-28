@@ -1,6 +1,9 @@
 package iago
 
 import (
+	"crypto/hmac"
+	"crypto/sha1"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -264,18 +267,25 @@ func (cw *sshConfig) knownHostAlgorithms(hostAlias string) []string {
 		}
 		for line := range strings.Lines(string(data)) {
 			line = strings.TrimSpace(line)
-			// Skip comments, blank lines, hashed hostnames, and markers.
-			if line == "" || line[0] == '#' || line[0] == '|' || line[0] == '@' {
+			// Skip comments, blank lines, and markers.
+			if line == "" || line[0] == '#' || line[0] == '@' {
 				continue
 			}
 			fields := strings.Fields(line)
 			if len(fields) < 3 {
 				continue
 			}
-			// fields[0] is a comma-separated list of hostname patterns.
+			// fields[0] is a comma-separated list of hostname patterns or a
+			// single hashed entry in the |1|salt|hash format.
 			// fields[1] is the key type (e.g. "ssh-ed25519").
 			for h := range strings.SplitSeq(fields[0], ",") {
-				if h == norm && !seen[fields[1]] {
+				var matches bool
+				if strings.HasPrefix(h, "|1|") {
+					matches = matchesHashedHost(h, norm)
+				} else {
+					matches = h == norm
+				}
+				if matches && !seen[fields[1]] {
 					algos = append(algos, fields[1])
 					seen[fields[1]] = true
 					break
@@ -298,6 +308,27 @@ func createHostKeyCallback(userKnownHostsFilesPaths []string) (ssh.HostKeyCallba
 		userKnownHostsFiles = append(userKnownHostsFiles, file)
 	}
 	return knownhosts.New(userKnownHostsFiles...)
+}
+
+// matchesHashedHost reports whether host matches the hashed known_hosts pattern.
+// The pattern must be in the |1|<base64-salt>|<base64-hash> format used by OpenSSH.
+func matchesHashedHost(pattern, host string) bool {
+	// Split on "|": a valid hashed entry produces ["", "1", salt, hash].
+	parts := strings.SplitN(pattern, "|", 4)
+	if len(parts) != 4 || parts[0] != "" || parts[1] != "1" {
+		return false
+	}
+	salt, err := base64.StdEncoding.DecodeString(parts[2])
+	if err != nil {
+		return false
+	}
+	hashBytes, err := base64.StdEncoding.DecodeString(parts[3])
+	if err != nil {
+		return false
+	}
+	mac := hmac.New(sha1.New, salt)
+	mac.Write([]byte(host))
+	return hmac.Equal(mac.Sum(nil), hashBytes)
 }
 
 func expand(path string) string {
