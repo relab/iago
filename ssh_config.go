@@ -332,7 +332,7 @@ func matchesHashedHost(pattern, host string) bool {
 	if err != nil {
 		return false
 	}
-	mac := hmac.New(sha1.New, salt) //nolint:gosec // SHA1 required by OpenSSH known_hosts format
+	mac := hmac.New(sha1.New, salt) // SHA1 required by OpenSSH known_hosts format
 	mac.Write([]byte(host))
 	return hmac.Equal(mac.Sum(nil), hashBytes)
 }

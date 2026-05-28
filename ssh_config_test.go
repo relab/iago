@@ -137,7 +137,7 @@ func TestProxyJumpConfig(t *testing.T) {
 //   - a single key type for "myhost" at a non-default port (2222), whose
 //     known_hosts entry uses the "[host]:port" format,
 //   - an entry for "other-host" that must never match "myhost" lookups,
-//   - a hashed entry (starting with "|1|") that must be silently skipped.
+//   - a hashed entry (starting with "|1|") matched via HMAC-SHA1 by matchesHashedHost.
 func TestKnownHostAlgorithms(t *testing.T) {
 	config, err := ParseSSHConfig("testdata/config-known-hosts")
 	if err != nil {
@@ -166,7 +166,7 @@ func TestKnownHostAlgorithms(t *testing.T) {
 		},
 		{
 			name:      "NoMatchReturnsNil",
-			hostAlias: "nomatch",
+			hostAlias: "no-match",
 			wantAlgos: nil,
 		},
 	}
