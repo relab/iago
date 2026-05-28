@@ -166,7 +166,7 @@ func TestKnownHostAlgorithms(t *testing.T) {
 		},
 		{
 			name:      "NoMatchReturnsNil",
-			hostAlias: "no-match",
+			hostAlias: "nomatch",
 			wantAlgos: nil,
 		},
 	}
