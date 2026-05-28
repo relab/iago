@@ -312,6 +312,8 @@ func createHostKeyCallback(userKnownHostsFilesPaths []string) (ssh.HostKeyCallba
 
 // matchesHashedHost reports whether host matches the hashed known_hosts pattern.
 // The pattern must be in the |1|<base64-salt>|<base64-hash> format used by OpenSSH.
+// OpenSSH uses HMAC-SHA1 for this format (type "1"); SHA1 is intentional here for
+// compatibility with existing known_hosts files and must not be upgraded.
 func matchesHashedHost(pattern, host string) bool {
 	// Split on "|": a valid hashed entry produces ["", "1", salt, hash].
 	parts := strings.SplitN(pattern, "|", 4)
@@ -326,7 +328,7 @@ func matchesHashedHost(pattern, host string) bool {
 	if err != nil {
 		return false
 	}
-	mac := hmac.New(sha1.New, salt)
+	mac := hmac.New(sha1.New, salt) //nolint:gosec // SHA1 required by OpenSSH known_hosts format
 	mac.Write([]byte(host))
 	return hmac.Equal(mac.Sum(nil), hashBytes)
 }
