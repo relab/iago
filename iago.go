@@ -75,6 +75,12 @@ type Group struct {
 	Hosts        []Host
 	ErrorHandler ErrorHandler
 	Timeout      time.Duration
+
+	// sharedClosers are resources owned by the group rather than by any
+	// individual host (for example, a single SSH connection to a ProxyJump
+	// host shared by all targets that route through it). They are closed
+	// after all hosts on [Group.Close].
+	sharedClosers []io.Closer
 }
 
 // NewGroup returns a new Group consisting of the given hosts.
@@ -106,11 +112,15 @@ func (g Group) Run(name string, f func(context.Context, Host) error) {
 	}
 }
 
-// Close closes any connections to hosts.
+// Close closes any connections to hosts and any group-owned shared resources
+// (such as ProxyJump connections shared across hosts in this group).
 func (g Group) Close() (err error) {
 	for _, h := range g.Hosts {
 		// Join close errors; nil errors are discarded by Join.
 		err = errors.Join(err, h.Close())
+	}
+	for _, c := range g.sharedClosers {
+		err = errors.Join(err, c.Close())
 	}
 	return err
 }
