@@ -4,13 +4,67 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/relab/iago"
 )
+
+// countingProxy is a transparent TCP proxy that counts how many times a new
+// connection is accepted. It is used in tests to verify that a single TCP
+// connection to the jump host is reused across all targets rather than one
+// connection being dialed per target.
+type countingProxy struct {
+	accepted atomic.Int64
+	addr     string
+	ln       net.Listener
+}
+
+func newCountingProxy(t *testing.T, target string) *countingProxy {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &countingProxy{addr: ln.Addr().String(), ln: ln}
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		p.serve(target)
+	})
+	t.Cleanup(func() {
+		ln.Close()
+		wg.Wait()
+	})
+	return p
+}
+
+func (p *countingProxy) serve(target string) {
+	for {
+		src, err := p.ln.Accept()
+		if err != nil {
+			return
+		}
+		p.accepted.Add(1)
+		dst, err := net.Dial("tcp", target)
+		if err != nil {
+			src.Close()
+			continue
+		}
+		go func() {
+			defer src.Close()
+			defer dst.Close()
+			var wg sync.WaitGroup
+			wg.Go(func() { io.Copy(dst, src) })
+			wg.Go(func() { io.Copy(src, dst) })
+			wg.Wait()
+		}()
+	}
+}
 
 func TestNewSSHGroup(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -152,7 +206,16 @@ func TestNewSSHGroupProxyJump(t *testing.T) {
 		t.Cleanup(cleanupContainer(t, cli, network, targets[i].id))
 	}
 
-	configEntries := []string{sshConfigEntry(jump.hostAlias, "127.0.0.1", "root", keyFiles.privateKeyPath, jump.port)}
+	// Route the jump host through a counting proxy so we can assert that
+	// NewSSHGroup dials the jump exactly once, regardless of how many targets
+	// share the same ProxyJump spec.
+	proxy := newCountingProxy(t, jump.address)
+	_, proxyPort, err := net.SplitHostPort(proxy.addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	configEntries := []string{sshConfigEntry(jump.hostAlias, "127.0.0.1", "root", keyFiles.privateKeyPath, proxyPort)}
 	for _, tgt := range targets {
 		// Hostname must be the Docker-assigned container name, which is the
 		// DNS alias registered on the Docker network. The host-mapped ephemeral
@@ -189,6 +252,12 @@ func TestNewSSHGroupProxyJump(t *testing.T) {
 
 	if len(group.Hosts) != numTargets {
 		t.Fatalf("group has %d hosts, want %d", len(group.Hosts), numTargets)
+	}
+
+	// Assert that the jump host was dialed exactly once. If sharing is broken
+	// and each target opens its own jump connection, this will equal numTargets.
+	if n := proxy.accepted.Load(); n != 1 {
+		t.Errorf("jump host dialed %d times, want 1 (shared connection not reused)", n)
 	}
 
 	group.ErrorHandler = func(e error) { t.Error(e) }
