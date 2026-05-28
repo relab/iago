@@ -109,11 +109,12 @@ func (cw *sshConfig) ClientConfig(hostAlias string) (*ssh.ClientConfig, error) {
 	}
 
 	clientConfig := &ssh.ClientConfig{
-		Config:          ssh.Config{},
-		User:            username,
-		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signers...)},
-		HostKeyCallback: hostKeyCallback,
-		Timeout:         timeout,
+		Config:            ssh.Config{},
+		User:              username,
+		Auth:              []ssh.AuthMethod{ssh.PublicKeys(signers...)},
+		HostKeyCallback:   hostKeyCallback,
+		HostKeyAlgorithms: cw.knownHostAlgorithms(hostAlias),
+		Timeout:           timeout,
 	}
 	return clientConfig, nil
 }
@@ -225,6 +226,64 @@ func (cw *sshConfig) getHostKeyCallback(hostAlias string) (hostKeyCallback ssh.H
 		return nil, fmt.Errorf("iago: failed to create host key callback for %s: %w", hostAlias, err)
 	}
 	return hostKeyCallback, nil
+}
+
+// knownHostAlgorithms returns the host key algorithms present in the known_hosts
+// files for the resolved address of hostAlias. The returned slice is used as
+// [ssh.ClientConfig.HostKeyAlgorithms] so that Go's crypto/ssh requests only key
+// types already recorded in known_hosts during the server handshake.
+//
+// Without this, Go's crypto/ssh uses its own preference order (ECDSA before
+// ED25519), which causes "knownhosts: key mismatch" when the server offers
+// multiple key types but only one of them is stored locally.
+//
+// Returns nil when strict host key checking is disabled or no matching entries
+// are found; in those cases the caller must not constrain HostKeyAlgorithms.
+func (cw *sshConfig) knownHostAlgorithms(hostAlias string) []string {
+	strictHostKeyChecking, err := cw.get(hostAlias, "StrictHostKeyChecking")
+	if err != nil || strictHostKeyChecking == "no" {
+		return nil
+	}
+	userKnownHostsFile, err := cw.get(hostAlias, "UserKnownHostsFile")
+	if err != nil || userKnownHostsFile == "" {
+		return nil
+	}
+	addr := cw.ConnectAddr(hostAlias)
+	if addr == "" {
+		return nil
+	}
+	norm := knownhosts.Normalize(addr)
+
+	var algos []string
+	seen := make(map[string]bool)
+	for file := range strings.SplitSeq(userKnownHostsFile, " ") {
+		file = expand(file)
+		data, err := os.ReadFile(file)
+		if err != nil {
+			continue
+		}
+		for line := range strings.Lines(string(data)) {
+			line = strings.TrimSpace(line)
+			// Skip comments, blank lines, hashed hostnames, and markers.
+			if line == "" || line[0] == '#' || line[0] == '|' || line[0] == '@' {
+				continue
+			}
+			fields := strings.Fields(line)
+			if len(fields) < 3 {
+				continue
+			}
+			// fields[0] is a comma-separated list of hostname patterns.
+			// fields[1] is the key type (e.g. "ssh-ed25519").
+			for h := range strings.SplitSeq(fields[0], ",") {
+				if h == norm && !seen[fields[1]] {
+					algos = append(algos, fields[1])
+					seen[fields[1]] = true
+					break
+				}
+			}
+		}
+	}
+	return algos
 }
 
 // createHostKeyCallback returns a HostKeyCallback that checks the host keys against the known hosts files.
