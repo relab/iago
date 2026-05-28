@@ -8,13 +8,13 @@ It supports executing tasks concurrently across multiple hosts, such as uploadin
 
 Iago executes *tasks* on a *group* of *hosts*.
 Tasks are functions that describe the *actions* to be performed on each individual host concurrently.
-The `iago.DialSSH` or `iago.NewSSHGroup` can be used to connect to existing SSH servers.
+Use `iago.NewSSHGroup` to connect to remote hosts defined in an SSH config file,
+or `iago.DialSSH` to connect to a single host directly.
 
 ```go
-hosts := []string{"host1", "host2", "host3"}
+hosts := []string{"wrk1", "wrk2", "wrk3"}
 configPath := "/path/to/ssh/config"
 
-// var g iago.Group is a set of iago.Host instances that the task will be applied to.
 g, err := iago.NewSSHGroup(hosts, configPath)
 if err != nil {
 	// handle error
@@ -22,26 +22,120 @@ if err != nil {
 defer g.Close()
 
 g.Run("Example Task", func(ctx context.Context, host iago.Host) error {
-  // This function will be executed concurrently on each host in the group.
-  // The context is used to control the execution of the task.
-  log.Println(host.Name())
-  return nil
+	// Executed concurrently on each host.
+	log.Println(host.Name())
+	return nil
 })
 ```
 
-We currently support connecting to remote hosts via SSH,
-but support for other connection methods can be added by implementing the `iago.Host` interface.
+Support for other connection methods can be added by implementing the `iago.Host` interface.
 
-Error handling is configured at the group level, using the `ErrorHandler` field of the `iago.Group` struct.
-By default, errors cause a panic, but you can set a custom error handler:
+Error handling is configured at the group level using the `ErrorHandler` field.
+By default, errors cause a panic, but you can set a custom handler:
 
 ```go
 g.ErrorHandler = func(e error) {
-  log.Printf("Task failed: %v", e)
+	log.Printf("Task failed: %v", e)
 }
 ```
 
-### Example
+## SSH config files
+
+`iago.NewSSHGroup` reads an OpenSSH-style config file (defaulting to `~/.ssh/config`).
+It honours the following per-host options: `Hostname`, `Port`, `User`, `IdentityFile`,
+`ProxyJump`, `ConnectTimeout`, `StrictHostKeyChecking`, and `UserKnownHostsFile`.
+OpenSSH's **first-match-wins** rule applies: the first `Host` stanza that matches a given
+alias wins for each option.
+
+Connections must be passphrase-free at connect time.
+Load keys into `ssh-agent` ahead of time (entering the passphrase once):
+
+```sh
+ssh-add
+```
+
+Alternatively, point `IdentityFile` at a passphrase-less private key.
+
+### Example config
+
+The following config connects 15 workers through a bastion host using a single wildcard stanza:
+
+```ssh-config
+Host *
+  IdentityFile ~/.ssh/id_ed25519
+  UserKnownHostsFile ~/.ssh/known_hosts
+
+Host bastion
+  User deploy
+  HostName bastion.example.com
+
+Host wrk*
+  HostName %h.cluster.example.com
+  User deploy
+  ProxyJump bastion
+  StrictHostKeyChecking no
+```
+
+The `%h` token expands to the alias, so `wrk7` resolves to `wrk7.cluster.example.com`.
+No per-host stanzas are needed for the workers — the wildcard covers all of them.
+
+### Resolving host aliases with ParseHosts
+
+`iago.ParseHosts` resolves a comma-separated host spec to a slice of SSH aliases
+suitable for passing to `NewSSHGroup`. Each token is handled as follows:
+
+| Form | Example | Best for |
+| --- | --- | --- |
+| Literal list | `atlas,titan,helios` | A small, fixed set of irregularly named hosts |
+| Numeric range | `wrk[1-15]` | Numerically named hosts; no config lookup needed |
+| Glob | `gpu-*` | Irregularly named hosts that share a role prefix; config is the membership list |
+
+```go
+aliases, err := iago.ParseHosts("wrk[1-15]", configPath)
+// aliases == []string{"wrk1", "wrk2", ..., "wrk15"}
+
+g, err := iago.NewSSHGroup(aliases, configPath)
+```
+
+The numeric range form is usually the cleanest for regular names: it expands without
+consulting the config file and works even when only a wildcard stanza is present.
+
+The glob form is most useful when host names are irregular — for example, GPU nodes
+named after Greek titans rather than by number. The config file becomes the source of
+truth for cluster membership: adding or removing a `Host` stanza automatically changes
+what the glob returns, with no code change required.
+
+```ssh-config
+Host gpu-atlas gpu-titan gpu-helios
+  HostName %h.cluster.example.com
+  User deploy
+  ProxyJump bastion
+  StrictHostKeyChecking no
+```
+
+```go
+aliases, err := iago.ParseHosts("gpu-*", configPath)
+// aliases == []string{"gpu-atlas", "gpu-titan", "gpu-helios"}
+```
+
+Multiple space-separated aliases can share one stanza; `%h` still expands per-alias.
+When a fourth GPU node is added to the config, `gpu-*` picks it up without touching
+any Go code.
+
+### ProxyJump and connection sharing
+
+When `Host wrk1` has `ProxyJump bastion`, iago dials `bastion` first and tunnels
+the connection to `wrk1` through it. `NewSSHGroup` dials each unique `ProxyJump`
+target **once** and reuses that connection for every alias that routes through it.
+A group of 15 workers that all share `ProxyJump bastion` opens exactly **one**
+TCP/SSH connection to `bastion` — equivalent to what OpenSSH's `ControlMaster` /
+`ControlPersist` achieves for the system `ssh` client, without requiring a background
+process or a Unix-domain socket.
+
+The shared connection is owned by the `Group` and closed by `group.Close()`.
+Closing an individual `iago.Host` closes only that host's tunnel.
+
+## Example
 
 The following example downloads a file from each remote host.
 The file is downloaded to a temporary directory created by the test framework and named `os.<hostname>`.
@@ -51,26 +145,26 @@ This example uses the `iagotest` package, which spawns docker containers and con
 
 ```go
 func TestIago(t *testing.T) {
-  dir := t.TempDir()
+	dir := t.TempDir()
 
-  // The iagotest package provides a helper function that automatically
-  // builds and starts docker containers with an exposed SSH port for testing.
-  g := iagotest.CreateSSHGroup(t, 4, false)
+	// The iagotest package provides a helper function that automatically
+	// builds and starts docker containers with an exposed SSH port for testing.
+	g := iagotest.CreateSSHGroup(t, 4, false)
 
-  g.Run("Download files", func(ctx context.Context, host iago.Host) error {
-    src, err := iago.NewPath("/etc", "os-release")
-    if err != nil {
-      return err
-    }
-    dest, err := iago.NewPath(dir, "os")
-    if err != nil {
-      return err
-    }
-    return iago.Download{
-      Src:  src,
-      Dest: dest,
-      Perm: iago.NewPerm(0o644),
-    }.Apply(ctx, host)
-  })
+	g.Run("Download files", func(ctx context.Context, host iago.Host) error {
+		src, err := iago.NewPath("/etc", "os-release")
+		if err != nil {
+			return err
+		}
+		dest, err := iago.NewPath(dir, "os")
+		if err != nil {
+			return err
+		}
+		return iago.Download{
+			Src:  src,
+			Dest: dest,
+			Perm: iago.NewPerm(0o644),
+		}.Apply(ctx, host)
+	})
 }
 ```

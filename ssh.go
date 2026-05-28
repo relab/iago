@@ -19,7 +19,6 @@ type sshHost struct {
 	name       string
 	env        map[string]string
 	client     *ssh.Client
-	jumpClient *ssh.Client // non-nil when connected via ProxyJump; closed with this host
 	sftpClient *sftp.Client
 	fsys       fs.FS
 	vars       map[string]any
@@ -31,12 +30,13 @@ func DialSSH(name, addr string, cfg *ssh.ClientConfig) (Host, error) {
 	if err != nil {
 		return nil, err
 	}
-	return newHostFromClient(name, client, nil)
+	return newHostFromClient(name, client)
 }
 
 // dialViaProxy connects to a remote host by tunnelling through an already-established
-// SSH connection to a jump host. The jump client is owned by the returned Host and
-// closed when the Host is closed.
+// SSH connection to a jump host. The jump client is not owned by the returned Host;
+// its lifetime is managed by the caller (typically [NewSSHGroup], which shares one
+// jump client across all targets that route through the same ProxyJump spec).
 func dialViaProxy(name, addr string, cfg *ssh.ClientConfig, jump *ssh.Client) (Host, error) {
 	ctx := context.Background()
 	if cfg.Timeout > 0 {
@@ -52,13 +52,12 @@ func dialViaProxy(name, addr string, cfg *ssh.ClientConfig, jump *ssh.Client) (H
 	if err != nil {
 		return nil, err
 	}
-	return newHostFromClient(name, ssh.NewClient(ncc, chans, reqs), jump)
+	return newHostFromClient(name, ssh.NewClient(ncc, chans, reqs))
 }
 
 // newHostFromClient wraps an established *ssh.Client as a Host, creating the SFTP
-// sub-client and fetching the remote environment. jumpClient may be nil; if non-nil
-// it is closed when the Host is closed.
-func newHostFromClient(name string, client *ssh.Client, jumpClient *ssh.Client) (Host, error) {
+// sub-client and fetching the remote environment.
+func newHostFromClient(name string, client *ssh.Client) (Host, error) {
 	sftpClient, err := sftp.NewClient(client)
 	if err != nil {
 		return nil, err
@@ -71,7 +70,6 @@ func newHostFromClient(name string, client *ssh.Client, jumpClient *ssh.Client) 
 		name:       name,
 		env:        env,
 		client:     client,
-		jumpClient: jumpClient,
 		sftpClient: sftpClient,
 		fsys:       sftpfs.New(sftpClient, "/"),
 		vars:       make(map[string]any),
@@ -92,8 +90,14 @@ func newHostFromClient(name string, client *ssh.Client, jumpClient *ssh.Client) 
 // files specified by UserKnownHostsFile (the default known_hosts files will be used if
 // this option is not specified).
 //
-// Finally, the specified hosts must all contain a authorized_keys file containing the
+// The specified hosts must all contain a authorized_keys file containing the
 // public key of the user running this program.
+//
+// When several aliases share the same ProxyJump spec, a single TCP/SSH connection
+// to the jump host is dialed once and reused for every target tunnelled through it.
+// This mirrors what OpenSSH's ControlMaster provides for the system ssh client and
+// avoids opening one proxy connection per target alias. The shared jump clients are
+// owned by the returned [Group] and closed by [Group.Close].
 func NewSSHGroup(hostAliases []string, sshConfigFile string) (group Group, err error) {
 	if sshConfigFile == "" {
 		if err = initHomeDir(); err != nil {
@@ -105,38 +109,68 @@ func NewSSHGroup(hostAliases []string, sshConfigFile string) (group Group, err e
 	if err != nil {
 		return group, err
 	}
+
+	jumpClients := make(map[string]*ssh.Client)
 	hosts := make([]Host, 0, len(hostAliases))
-	for _, h := range hostAliases {
-		clientCfg, err := config.ClientConfig(h)
-		if err != nil {
-			return group, err
+	defer func() {
+		if err == nil {
+			return
 		}
-		proxySpec, err := config.get(h, "ProxyJump")
-		if err != nil {
-			return group, err
+		for _, h := range hosts {
+			_ = h.Close()
 		}
-		targetAddr := config.ConnectAddr(h)
+		for _, jc := range jumpClients {
+			_ = jc.Close()
+		}
+	}()
+
+	for _, alias := range hostAliases {
 		var host Host
-		var hostErr error
-		if proxySpec != "" && proxySpec != "none" {
-			jumpCfg, err := config.ClientConfig(proxySpec)
-			if err != nil {
-				return group, fmt.Errorf("proxy jump %q for %q: %w", proxySpec, h, err)
-			}
-			jumpClient, err := ssh.Dial("tcp", config.ConnectAddr(proxySpec), jumpCfg)
-			if err != nil {
-				return group, fmt.Errorf("dial proxy jump %q: %w", proxySpec, err)
-			}
-			host, hostErr = dialViaProxy(h, targetAddr, clientCfg, jumpClient)
-		} else {
-			host, hostErr = DialSSH(h, targetAddr, clientCfg)
-		}
-		if hostErr != nil {
-			return group, hostErr
+		host, err = dialHost(alias, config, jumpClients)
+		if err != nil {
+			return group, err
 		}
 		hosts = append(hosts, host)
 	}
-	return NewGroup(hosts), nil
+
+	group = NewGroup(hosts)
+	for _, jc := range jumpClients {
+		group.sharedClosers = append(group.sharedClosers, jc)
+	}
+	return group, nil
+}
+
+// dialHost dials a single host using the given SSH config. If the host has a
+// ProxyJump, jumpClients is consulted first: if a client for that proxy spec
+// already exists it is reused, otherwise a new connection to the proxy is
+// dialed and stored in the map. The map is the caller's responsibility to
+// close (typically via [Group.sharedClosers]).
+func dialHost(alias string, config *sshConfig, jumpClients map[string]*ssh.Client) (Host, error) {
+	clientCfg, err := config.ClientConfig(alias)
+	if err != nil {
+		return nil, err
+	}
+	proxySpec, err := config.get(alias, "ProxyJump")
+	if err != nil {
+		return nil, err
+	}
+	targetAddr := config.ConnectAddr(alias)
+	if proxySpec == "" || proxySpec == "none" {
+		return DialSSH(alias, targetAddr, clientCfg)
+	}
+	jumpClient, ok := jumpClients[proxySpec]
+	if !ok {
+		jumpCfg, err := config.ClientConfig(proxySpec)
+		if err != nil {
+			return nil, fmt.Errorf("proxy jump %q for %q: %w", proxySpec, alias, err)
+		}
+		jumpClient, err = ssh.Dial("tcp", config.ConnectAddr(proxySpec), jumpCfg)
+		if err != nil {
+			return nil, fmt.Errorf("dial proxy jump %q: %w", proxySpec, err)
+		}
+		jumpClients[proxySpec] = jumpClient
+	}
+	return dialViaProxy(alias, targetAddr, clientCfg, jumpClient)
 }
 
 // fetchEnv returns a map containing the environment variables of the ssh server.
@@ -222,13 +256,13 @@ func (h *sshHost) NewCommand() (CmdRunner, error) {
 	}, nil
 }
 
-// Close closes the connection to the host, including any proxy jump connection.
+// Close closes the connection to the host.
+//
+// Note: when the host was dialed via ProxyJump by [NewSSHGroup], the underlying
+// jump connection is shared with other hosts and not closed here; it is closed
+// by [Group.Close].
 func (h *sshHost) Close() error {
-	err := errors.Join(h.sftpClient.Close(), h.client.Close())
-	if h.jumpClient != nil {
-		err = errors.Join(err, h.jumpClient.Close())
-	}
-	return err
+	return errors.Join(h.sftpClient.Close(), h.client.Close())
 }
 
 func (h *sshHost) SetVar(key string, val any) {

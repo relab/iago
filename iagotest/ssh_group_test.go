@@ -124,6 +124,84 @@ func TestNewSSHGroup(t *testing.T) {
 	})
 }
 
+// TestNewSSHGroupProxyJump verifies that NewSSHGroup can dial multiple target
+// hosts via a shared ProxyJump connection. The jump container is reached on
+// its host-mapped port; targets are reached through the jump on the internal
+// docker network using their container alias on port 22.
+//
+// NewSSHGroup reuses one *ssh.Client per unique ProxyJump spec, so a single
+// TCP connection to the jump host serves all N targets that share it.
+func TestNewSSHGroupProxyJump(t *testing.T) {
+	tmpDir := t.TempDir()
+	keyFiles := setupSSHKeys(t, tmpDir)
+
+	cli, network := setupContainerEnvironment(t, true)
+	t.Cleanup(cleanupNetwork(t, cli, network))
+
+	// Jump host: reached from this test on a host-mapped ephemeral port.
+	jump := createContainerWithInfo(t, cli, network, "jump", keyFiles.signer)
+	t.Cleanup(cleanupContainer(t, cli, network, jump.id))
+
+	// Targets: reached from inside the jump container on the docker network,
+	// addressed by the container's network alias on the internal port 22.
+	numTargets := 3
+	targets := make([]containerInfo, numTargets)
+	for i := range numTargets {
+		alias := fmt.Sprintf("target-%d", i+1)
+		targets[i] = createContainerWithInfo(t, cli, network, alias, keyFiles.signer)
+		t.Cleanup(cleanupContainer(t, cli, network, targets[i].id))
+	}
+
+	configEntries := []string{sshConfigEntry(jump.hostAlias, "127.0.0.1", "root", keyFiles.privateKeyPath, jump.port)}
+	for _, tgt := range targets {
+		// Hostname must be the Docker-assigned container name, which is the
+		// DNS alias registered on the Docker network. The host-mapped ephemeral
+		// port is only reachable from outside Docker; the jump container reaches
+		// the target on the internal port 22.
+		configEntries = append(configEntries, fmt.Sprintf(`Host %s
+	Hostname %s
+	User root
+	IdentityFile %s
+	Port 22
+	ProxyJump %s
+	StrictHostKeyChecking no
+	UserKnownHostsFile /dev/null
+`, tgt.hostAlias, tgt.id, keyFiles.privateKeyPath, jump.hostAlias))
+	}
+
+	configPath := filepath.Join(tmpDir, "config")
+	createSSHConfigFile(t, configPath, configEntries)
+
+	hostAliases := make([]string, numTargets)
+	for i, tgt := range targets {
+		hostAliases[i] = tgt.hostAlias
+	}
+
+	group, err := iago.NewSSHGroup(hostAliases, configPath)
+	if err != nil {
+		t.Fatalf("NewSSHGroup: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := group.Close(); err != nil {
+			t.Errorf("group.Close: %v", err)
+		}
+	})
+
+	if len(group.Hosts) != numTargets {
+		t.Fatalf("group has %d hosts, want %d", len(group.Hosts), numTargets)
+	}
+
+	group.ErrorHandler = func(e error) { t.Error(e) }
+	group.Run("hostname via proxy", func(ctx context.Context, host iago.Host) error {
+		var sb strings.Builder
+		if err := (iago.Shell{Command: "hostname", Stdout: &sb}).Apply(ctx, host); err != nil {
+			return err
+		}
+		t.Logf("hostname on %s: %s", host.Name(), strings.TrimSpace(sb.String()))
+		return nil
+	})
+}
+
 func TestNewSSHGroupInvalidConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 
