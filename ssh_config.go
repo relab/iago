@@ -242,6 +242,10 @@ func (cw *sshConfig) getHostKeyCallback(hostAlias string) (hostKeyCallback ssh.H
 //
 // Returns nil when strict host key checking is disabled or no matching entries
 // are found; in those cases the caller must not constrain HostKeyAlgorithms.
+//
+// Note: entries with OpenSSH glob wildcard patterns (e.g. *.example.com) or
+// negation prefixes (e.g. !host) in the hostname field are not matched; only
+// exact hostname matches are supported.
 func (cw *sshConfig) knownHostAlgorithms(hostAlias string) []string {
 	strictHostKeyChecking, err := cw.get(hostAlias, "StrictHostKeyChecking")
 	if err != nil || strictHostKeyChecking == "no" {
