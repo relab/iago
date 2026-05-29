@@ -331,17 +331,18 @@ func TestNewSSHGroupInvalidConfig(t *testing.T) {
 		t.Error("Expected error for non-existent config file, got nil")
 	}
 
-	// Test with invalid config file
+	// Test with malformed config content that the parser rejects. The
+	// ssh_config parser is lenient and accepts most junk, but a Match
+	// directive without criteria is one of the few inputs Decode errors on.
+	// Parsing happens before any dialing, so the error here must come from
+	// config parsing rather than from dialing test-host (no FailFast needed).
 	invalidConfigPath := filepath.Join(tmpDir, "invalid-config")
-	invalidConfig := "Invalid SSH Config Content\nNot a valid format"
-	if err := os.WriteFile(invalidConfigPath, []byte(invalidConfig), 0o600); err != nil {
+	if err := os.WriteFile(invalidConfigPath, []byte("Match\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	group, err := iago.NewSSHGroup([]string{"test-host"}, invalidConfigPath, iago.FailFast())
-	if err == nil {
-		group.Close()
-		t.Error("Expected error for unreachable host with FailFast, got nil")
+	if _, err := iago.NewSSHGroup([]string{"test-host"}, invalidConfigPath); err == nil {
+		t.Error("Expected error for malformed config content, got nil")
 	}
 }
 
