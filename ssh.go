@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/pkg/sftp"
 	"github.com/relab/iago/sftpfs"
@@ -98,79 +98,270 @@ func newHostFromClient(name string, client *ssh.Client) (Host, error) {
 // This mirrors what OpenSSH's ControlMaster provides for the system ssh client and
 // avoids opening one proxy connection per target alias. The shared jump clients are
 // owned by the returned [Group] and closed by [Group.Close].
-func NewSSHGroup(hostAliases []string, sshConfigFile string) (group Group, err error) {
-	if sshConfigFile == "" {
-		if err = initHomeDir(); err != nil {
-			return group, err
-		}
-		sshConfigFile = filepath.Join(homeDir, ".ssh", "config")
+//
+// By default, dial failures are collected in [Group.DialErrors] instead of
+// aborting the call. If no hosts connect successfully, an error is returned.
+// Pass [FailFast] to return an error if any target fails. Pass [DialConcurrency]
+// to dial target hosts concurrently; jump connections are always established
+// sequentially first so at most one TCP connection is made to each jump host.
+func NewSSHGroup(hostAliases []string, sshConfigFile string, opts ...GroupOption) (group Group, err error) {
+	cfg := applyGroupOptions(opts...)
+	sshConfigFile, err = resolveSSHConfigFile(sshConfigFile)
+	if err != nil {
+		return group, err
 	}
 	config, err := ParseSSHConfig(sshConfigFile)
 	if err != nil {
 		return group, err
 	}
 
-	jumpClients := make(map[string]*ssh.Client)
-	hosts := make([]Host, 0, len(hostAliases))
-	defer func() {
-		if err == nil {
-			return
-		}
-		for _, h := range hosts {
-			_ = h.Close()
-		}
-		for _, jc := range jumpClients {
-			_ = jc.Close()
-		}
-	}()
+	dialer := newGroupDialer(config, hostAliases)
+	defer dialer.closeOnError(&err)
 
-	for _, alias := range hostAliases {
-		var host Host
-		host, err = dialHost(alias, config, jumpClients)
-		if err != nil {
+	if err = dialer.prepareJumps(cfg.failFast); err != nil {
+		return group, err
+	}
+	dialer.dialAll(cfg.dialConcurrency)
+	if cfg.failFast {
+		if err = dialer.firstDialError(); err != nil {
 			return group, err
 		}
-		hosts = append(hosts, host)
 	}
-
-	group = NewGroup(hosts)
-	for _, jc := range jumpClients {
-		group.sharedClosers = append(group.sharedClosers, jc)
+	if err = dialer.allFailedError(); err != nil {
+		return group, err
 	}
-	return group, nil
+	return dialer.group(), nil
 }
 
-// dialHost dials a single host using the given SSH config. If the host has a
-// ProxyJump, jumpClients is consulted first: if a client for that proxy spec
-// already exists it is reused, otherwise a new connection to the proxy is
-// dialed and stored in the map. The map is the caller's responsibility to
-// close (typically via [Group.sharedClosers]).
-func dialHost(alias string, config *sshConfig, jumpClients map[string]*ssh.Client) (Host, error) {
+// groupDialer assembles a [Group] by dialing a set of host aliases under a single
+// SSH config, sharing one connection per distinct ProxyJump spec.
+//
+// Its lifecycle has two phases separated by a deliberate concurrency boundary:
+//
+//  1. prepareJumps establishes the shared jump connections. This is the only
+//     phase that writes jumpClients and jumpErrs.
+//  2. dialAll dials the target hosts, optionally in parallel. Its workers only
+//     read the jump maps (through jumpFor), so the read-only boundary holds by
+//     construction and no locking is required.
+//
+// The dialer owns every connection it opens until [groupDialer.group] transfers
+// ownership to the returned Group; on any earlier error, [groupDialer.closeOnError]
+// closes them all.
+type groupDialer struct {
+	config      *sshConfig
+	aliases     []string
+	jumpClients map[string]*ssh.Client // proxy spec -> shared jump connection
+	jumpErrs    map[string]error       // proxy spec -> error establishing it
+	hosts       []Host                 // successfully dialed targets
+	dialErrs    map[string]error       // alias -> dial error; nil until first failure
+}
+
+func newGroupDialer(config *sshConfig, aliases []string) *groupDialer {
+	return &groupDialer{
+		config:      config,
+		aliases:     aliases,
+		jumpClients: make(map[string]*ssh.Client),
+		jumpErrs:    make(map[string]error),
+	}
+}
+
+// prepareJumps establishes one shared connection per distinct ProxyJump spec
+// referenced by the aliases. With failFast set, the first failure is returned
+// immediately; otherwise failures are recorded per spec and later surfaced as
+// the dial error of every alias routing through that jump (see [groupDialer.jumpFor]).
+func (d *groupDialer) prepareJumps(failFast bool) error {
+	for _, alias := range d.aliases {
+		proxySpec, err := d.config.get(alias, "ProxyJump")
+		if err != nil || proxySpec == "" || proxySpec == "none" {
+			continue
+		}
+		if _, ok := d.jumpClients[proxySpec]; ok {
+			continue
+		}
+		if _, ok := d.jumpErrs[proxySpec]; ok {
+			continue
+		}
+		client, err := dialJump(proxySpec, d.config)
+		if err != nil {
+			if failFast {
+				return err
+			}
+			d.jumpErrs[proxySpec] = err
+			continue
+		}
+		d.jumpClients[proxySpec] = client
+	}
+	return nil
+}
+
+// jumpFor resolves the shared jump connection for alias. It returns (nil, nil)
+// when alias connects directly, (client, nil) when it routes through an
+// established jump, or (nil, err) when its jump could not be established. It only
+// reads state populated by prepareJumps, so it is safe for concurrent callers.
+func (d *groupDialer) jumpFor(alias string) (*ssh.Client, error) {
+	proxySpec, err := d.config.get(alias, "ProxyJump")
+	if err != nil {
+		return nil, err
+	}
+	if proxySpec == "" || proxySpec == "none" {
+		return nil, nil
+	}
+	if err := d.jumpErrs[proxySpec]; err != nil {
+		return nil, err
+	}
+	client := d.jumpClients[proxySpec]
+	if client == nil {
+		// prepareJumps establishes every referenced spec, so a missing client
+		// signals a programming error rather than a connection failure.
+		return nil, fmt.Errorf("iago: proxy jump %q was not prepared", proxySpec)
+	}
+	return client, nil
+}
+
+// dialAll dials every alias, reusing shared jump connections, and records the
+// outcomes in hosts and dialErrs. Up to concurrency aliases are dialed in
+// parallel; a value below 2 dials sequentially.
+func (d *groupDialer) dialAll(concurrency int) {
+	if len(d.aliases) == 0 {
+		return
+	}
+	results := make([]sshDialResult, len(d.aliases))
+	jobs := make(chan int)
+	var wg sync.WaitGroup
+	for range dialConcurrency(concurrency, len(d.aliases)) {
+		wg.Go(func() {
+			for i := range jobs {
+				results[i] = d.dialOne(d.aliases[i])
+			}
+		})
+	}
+	for i := range d.aliases {
+		jobs <- i
+	}
+	close(jobs)
+	wg.Wait()
+	d.collect(results)
+}
+
+// dialOne dials a single alias through its shared jump connection, if any.
+func (d *groupDialer) dialOne(alias string) sshDialResult {
+	jump, err := d.jumpFor(alias)
+	if err != nil {
+		return sshDialResult{err: err}
+	}
+	host, err := dialTarget(alias, d.config, jump)
+	return sshDialResult{host: host, err: err}
+}
+
+// collect records per-alias results in aliases order, lazily allocating dialErrs
+// so it stays nil when every alias connects.
+func (d *groupDialer) collect(results []sshDialResult) {
+	d.hosts = make([]Host, 0, len(results))
+	for i, alias := range d.aliases {
+		if results[i].host != nil {
+			d.hosts = append(d.hosts, results[i].host)
+		}
+		if results[i].err != nil {
+			if d.dialErrs == nil {
+				d.dialErrs = make(map[string]error)
+			}
+			d.dialErrs[alias] = results[i].err
+		}
+	}
+}
+
+// firstDialError returns the dial error of the earliest alias that failed, or nil
+// if all connected. It is used to honor [FailFast].
+func (d *groupDialer) firstDialError() error {
+	for _, alias := range d.aliases {
+		if err := d.dialErrs[alias]; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// allFailedError returns a combined error when no alias connected, or nil if at
+// least one did (or none were requested).
+func (d *groupDialer) allFailedError() error {
+	if len(d.hosts) > 0 || len(d.dialErrs) == 0 {
+		return nil
+	}
+	errs := make([]error, 0, len(d.dialErrs))
+	for _, alias := range d.aliases {
+		if err := d.dialErrs[alias]; err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", alias, err))
+		}
+	}
+	return fmt.Errorf("iago: failed to dial any hosts: %w", errors.Join(errs...))
+}
+
+// group transfers ownership of the dialed hosts and shared jump connections to a
+// new [Group]. After this call the dialer no longer owns those connections, so it
+// must only run on the success path where closeOnError is a no-op.
+func (d *groupDialer) group() Group {
+	group := NewGroup(d.hosts)
+	group.DialErrors = d.dialErrs
+	for _, jc := range d.jumpClients {
+		group.sharedClosers = append(group.sharedClosers, jc)
+	}
+	return group
+}
+
+// closeOnError closes every connection the dialer opened when *errPtr is non-nil.
+// It is a no-op on success, where ownership has passed to the returned Group.
+func (d *groupDialer) closeOnError(errPtr *error) {
+	if *errPtr == nil {
+		return
+	}
+	for _, h := range d.hosts {
+		_ = h.Close()
+	}
+	for _, jc := range d.jumpClients {
+		_ = jc.Close()
+	}
+}
+
+type sshDialResult struct {
+	host Host
+	err  error
+}
+
+func dialConcurrency(concurrency, aliases int) int {
+	if concurrency < 2 {
+		return 1
+	}
+	return min(concurrency, aliases)
+}
+
+// dialJump establishes a new SSH connection to the given ProxyJump spec. The
+// returned client is a bare [ssh.Client] used only as a tunnel; unlike a target
+// host it has no SFTP sub-client or fetched environment.
+func dialJump(proxySpec string, config *sshConfig) (*ssh.Client, error) {
+	jumpCfg, err := config.ClientConfig(proxySpec)
+	if err != nil {
+		return nil, fmt.Errorf("proxy jump %q: %w", proxySpec, err)
+	}
+	client, err := ssh.Dial("tcp", config.ConnectAddr(proxySpec), jumpCfg)
+	if err != nil {
+		return nil, fmt.Errorf("dial proxy jump %q: %w", proxySpec, err)
+	}
+	return client, nil
+}
+
+// dialTarget dials a single target alias. When jump is non-nil the connection is
+// tunnelled through that shared jump client; otherwise it is dialed directly. The
+// jump client's lifetime is managed by the caller, not by the returned Host.
+func dialTarget(alias string, config *sshConfig, jump *ssh.Client) (Host, error) {
 	clientCfg, err := config.ClientConfig(alias)
 	if err != nil {
 		return nil, err
 	}
-	proxySpec, err := config.get(alias, "ProxyJump")
-	if err != nil {
-		return nil, err
+	addr := config.ConnectAddr(alias)
+	if jump == nil {
+		return DialSSH(alias, addr, clientCfg)
 	}
-	targetAddr := config.ConnectAddr(alias)
-	if proxySpec == "" || proxySpec == "none" {
-		return DialSSH(alias, targetAddr, clientCfg)
-	}
-	jumpClient, ok := jumpClients[proxySpec]
-	if !ok {
-		jumpCfg, err := config.ClientConfig(proxySpec)
-		if err != nil {
-			return nil, fmt.Errorf("proxy jump %q for %q: %w", proxySpec, alias, err)
-		}
-		jumpClient, err = ssh.Dial("tcp", config.ConnectAddr(proxySpec), jumpCfg)
-		if err != nil {
-			return nil, fmt.Errorf("dial proxy jump %q: %w", proxySpec, err)
-		}
-		jumpClients[proxySpec] = jumpClient
-	}
-	return dialViaProxy(alias, targetAddr, clientCfg, jumpClient)
+	return dialViaProxy(alias, addr, clientCfg, jump)
 }
 
 // fetchEnv returns a map containing the environment variables of the ssh server.
