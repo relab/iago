@@ -66,6 +66,21 @@ func ParseSSHConfig(configFile string) (*sshConfig, error) {
 	return &sshConfig{decodedConfig}, nil
 }
 
+// resolveSSHConfigFile returns the path to the SSH config file to use, based
+// on the provided sshConfigFile argument. If sshConfigFile is non-empty, it is
+// returned as is. Otherwise, the default path ~/.ssh/config is returned.
+// An error is returned if the home directory cannot be determined when needed
+// to resolve the default path.
+func resolveSSHConfigFile(sshConfigFile string) (string, error) {
+	if sshConfigFile != "" {
+		return sshConfigFile, nil
+	}
+	if err := initHomeDir(); err != nil {
+		return "", err
+	}
+	return filepath.Join(homeDir, ".ssh", "config"), nil
+}
+
 type sshConfig struct {
 	config *ssh_config.Config
 }
@@ -379,13 +394,11 @@ func ParseHosts(spec, configFile string) ([]string, error) {
 			// Lazy-load the SSH config only if we encounter a glob token, to avoid
 			// unnecessary parsing. We only need to parse once; hence the nil check.
 			if config == nil {
-				if configFile == "" {
-					if err := initHomeDir(); err != nil {
-						return nil, err
-					}
-					configFile = filepath.Join(homeDir, ".ssh", "config")
-				}
 				var err error
+				configFile, err = resolveSSHConfigFile(configFile)
+				if err != nil {
+					return nil, err
+				}
 				config, err = ParseSSHConfig(configFile)
 				if err != nil {
 					return nil, err

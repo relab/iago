@@ -66,6 +66,22 @@ func (p *countingProxy) serve(target string) {
 	}
 }
 
+func unusedLocalTCPPort(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, port, err := net.SplitHostPort(ln.Addr().String())
+	if closeErr := ln.Close(); closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return port
+}
+
 func TestNewSSHGroup(t *testing.T) {
 	tmpDir := t.TempDir()
 	keyFiles := setupSSHKeys(t, tmpDir)
@@ -240,7 +256,7 @@ func TestNewSSHGroupProxyJump(t *testing.T) {
 		hostAliases[i] = tgt.hostAlias
 	}
 
-	group, err := iago.NewSSHGroup(hostAliases, configPath)
+	group, err := iago.NewSSHGroup(hostAliases, configPath, iago.DialConcurrency(numTargets))
 	if err != nil {
 		t.Fatalf("NewSSHGroup: %v", err)
 	}
@@ -271,6 +287,40 @@ func TestNewSSHGroupProxyJump(t *testing.T) {
 	})
 }
 
+func TestNewSSHGroupPartialDialErrors(t *testing.T) {
+	tmpDir := t.TempDir()
+	keyFiles := setupSSHKeys(t, tmpDir)
+
+	cli, network := setupContainerEnvironment(t, true)
+	t.Cleanup(cleanupNetwork(t, cli, network))
+
+	reachable := createContainerWithInfo(t, cli, network, "reachable-host", keyFiles.signer)
+	t.Cleanup(cleanupContainer(t, cli, network, reachable.id))
+
+	configEntries := []string{
+		sshConfigEntry(reachable.hostAlias, "127.0.0.1", "root", keyFiles.privateKeyPath, reachable.port),
+		sshConfigEntry("unreachable-host", "127.0.0.1", "root", keyFiles.privateKeyPath, unusedLocalTCPPort(t)),
+	}
+	configPath := filepath.Join(tmpDir, "config")
+	createSSHConfigFile(t, configPath, configEntries)
+
+	group, err := iago.NewSSHGroup([]string{reachable.hostAlias, "unreachable-host"}, configPath)
+	if err != nil {
+		t.Fatalf("NewSSHGroup returned error despite one reachable host: %v", err)
+	}
+	defer group.Close()
+
+	if len(group.Hosts) != 1 {
+		t.Fatalf("group has %d hosts, want 1", len(group.Hosts))
+	}
+	if group.Hosts[0].Name() != reachable.hostAlias {
+		t.Errorf("host name = %q, want %q", group.Hosts[0].Name(), reachable.hostAlias)
+	}
+	if group.DialErrors["unreachable-host"] == nil {
+		t.Error("Expected dial error for unreachable-host in group.DialErrors, got nil")
+	}
+}
+
 func TestNewSSHGroupInvalidConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -281,16 +331,18 @@ func TestNewSSHGroupInvalidConfig(t *testing.T) {
 		t.Error("Expected error for non-existent config file, got nil")
 	}
 
-	// Test with invalid config file
+	// Test with malformed config content that the parser rejects. The
+	// ssh_config parser is lenient and accepts most junk, but a Match
+	// directive without criteria is one of the few inputs Decode errors on.
+	// Parsing happens before any dialing, so the error here must come from
+	// config parsing rather than from dialing test-host (no FailFast needed).
 	invalidConfigPath := filepath.Join(tmpDir, "invalid-config")
-	invalidConfig := "Invalid SSH Config Content\nNot a valid format"
-	if err := os.WriteFile(invalidConfigPath, []byte(invalidConfig), 0o600); err != nil {
+	if err := os.WriteFile(invalidConfigPath, []byte("Match\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = iago.NewSSHGroup([]string{"test-host"}, invalidConfigPath)
-	if err == nil {
-		t.Error("Expected error for invalid config file, got nil")
+	if _, err := iago.NewSSHGroup([]string{"test-host"}, invalidConfigPath); err == nil {
+		t.Error("Expected error for malformed config content, got nil")
 	}
 }
 
@@ -325,9 +377,17 @@ func TestNewSSHGroupUnknownHost(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Try to create group with unknown host
+	// By default, dial failures are stored in group.DialErrors when at least
+	// one host connects. If every requested host fails, NewSSHGroup returns an
+	// error instead of an empty group.
 	_, err := iago.NewSSHGroup([]string{"unknown-host"}, configPath)
 	if err == nil {
-		t.Error("Expected error for unknown host, got nil")
+		t.Error("Expected error when all requested hosts fail to dial, got nil")
+	}
+
+	// With FailFast, the same failure is returned directly from NewSSHGroup.
+	_, err = iago.NewSSHGroup([]string{"unknown-host"}, configPath, iago.FailFast())
+	if err == nil {
+		t.Error("Expected error from NewSSHGroup with FailFast for unknown host, got nil")
 	}
 }

@@ -70,11 +70,54 @@ func GetIntVar(host Host, key string) int {
 	return 0
 }
 
+// GroupOption configures how [NewSSHGroup] dials hosts.
+type GroupOption func(*groupConfig)
+
+type groupConfig struct {
+	failFast        bool
+	dialConcurrency int
+}
+
+func applyGroupOptions(opts ...GroupOption) groupConfig {
+	var cfg groupConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	return cfg
+}
+
+// FailFast returns a [GroupOption] that makes [NewSSHGroup] stop and return
+// an error if any dial fails. Targets that have not yet been dialed when the
+// first failure is observed are skipped; combined with [DialConcurrency] this
+// is best-effort, as dials already in flight still run to completion. Without
+// this option, [NewSSHGroup] collects all dial errors in [Group.DialErrors]
+// and returns only the successfully connected hosts.
+func FailFast() GroupOption {
+	return func(cfg *groupConfig) {
+		cfg.failFast = true
+	}
+}
+
+// DialConcurrency returns a [GroupOption] that sets the maximum number of
+// target hosts dialed concurrently inside [NewSSHGroup]. Values less than 2
+// leave dialing sequential (the default). Jump connections are always
+// established sequentially before concurrent target dialing begins, so
+// there is at most one TCP connection to each jump host regardless of n.
+func DialConcurrency(n int) GroupOption {
+	return func(cfg *groupConfig) {
+		cfg.dialConcurrency = n
+	}
+}
+
 // Group is a group of hosts.
 type Group struct {
 	Hosts        []Host
 	ErrorHandler ErrorHandler
 	Timeout      time.Duration
+
+	// DialErrors holds per-alias dial failures from [NewSSHGroup] when
+	// [FailFast] is not set. A nil map means all aliases connected successfully.
+	DialErrors map[string]error
 
 	// sharedClosers are resources owned by the group rather than by any
 	// individual host (for example, a single SSH connection to a ProxyJump
