@@ -118,16 +118,10 @@ func NewSSHGroup(hostAliases []string, sshConfigFile string, opts ...GroupOption
 	dialer := newGroupDialer(config, hostAliases)
 	defer dialer.closeOnError(&err)
 
-	if err = dialer.prepareJumps(cfg.failFast); err != nil {
+	if err = dialer.prepareJumps(cfg); err != nil {
 		return group, err
 	}
-	dialer.dialAll(cfg.dialConcurrency)
-	if cfg.failFast {
-		if err = dialer.firstDialError(); err != nil {
-			return group, err
-		}
-	}
-	if err = dialer.allFailedError(); err != nil {
+	if err = dialer.dialAll(cfg); err != nil {
 		return group, err
 	}
 	return dialer.group(), nil
@@ -166,10 +160,10 @@ func newGroupDialer(config *sshConfig, aliases []string) *groupDialer {
 }
 
 // prepareJumps establishes one shared connection per distinct ProxyJump spec
-// referenced by the aliases. With failFast set, the first failure is returned
+// referenced by the aliases. With [FailFast] set, the first failure is returned
 // immediately; otherwise failures are recorded per spec and later surfaced as
 // the dial error of every alias routing through that jump (see [groupDialer.jumpFor]).
-func (d *groupDialer) prepareJumps(failFast bool) error {
+func (d *groupDialer) prepareJumps(cfg groupConfig) error {
 	for _, alias := range d.aliases {
 		proxySpec, err := d.config.get(alias, "ProxyJump")
 		if err != nil || proxySpec == "" || proxySpec == "none" {
@@ -183,7 +177,7 @@ func (d *groupDialer) prepareJumps(failFast bool) error {
 		}
 		client, err := dialJump(proxySpec, d.config)
 		if err != nil {
-			if failFast {
+			if cfg.failFast {
 				return err
 			}
 			d.jumpErrs[proxySpec] = err
@@ -218,29 +212,56 @@ func (d *groupDialer) jumpFor(alias string) (*ssh.Client, error) {
 	return client, nil
 }
 
-// dialAll dials every alias, reusing shared jump connections, and records the
-// outcomes in hosts and dialErrs. Up to concurrency aliases are dialed in
-// parallel; a value below 2 dials sequentially.
-func (d *groupDialer) dialAll(concurrency int) {
+// dialAll dials every alias, reusing shared jump connections, records the
+// outcomes in hosts and dialErrs, and reports the first fatal error: with
+// [FailFast] the earliest failing alias's dial error, otherwise a combined
+// error only when no alias connected at all. Up to cfg.dialConcurrency aliases
+// are dialed in parallel; a value below 2 dials sequentially.
+//
+// With [FailFast] set, the first failed dial stops further targets from being
+// queued: sequentially this means no later alias is contacted at all, while
+// concurrently it is best-effort because dials already in flight still run to
+// completion (a direct [DialSSH] cannot be cancelled mid-handshake).
+func (d *groupDialer) dialAll(cfg groupConfig) error {
 	if len(d.aliases) == 0 {
-		return
+		return nil
 	}
 	results := make([]sshDialResult, len(d.aliases))
 	jobs := make(chan int)
+	abort := make(chan struct{})
+	var abortOnce sync.Once
 	var wg sync.WaitGroup
-	for range dialConcurrency(concurrency, len(d.aliases)) {
+	for range dialConcurrency(cfg.dialConcurrency, len(d.aliases)) {
 		wg.Go(func() {
 			for i := range jobs {
 				results[i] = d.dialOne(d.aliases[i])
+				if cfg.failFast && results[i].err != nil {
+					// Signal the scheduler to stop queuing further targets and
+					// stop this worker from picking up any already-queued one.
+					abortOnce.Do(func() { close(abort) })
+					return
+				}
 			}
 		})
 	}
+schedule:
 	for i := range d.aliases {
-		jobs <- i
+		select {
+		case <-abort:
+			break schedule
+		case jobs <- i:
+		}
 	}
 	close(jobs)
 	wg.Wait()
 	d.collect(results)
+
+	if cfg.failFast {
+		if err := d.firstDialError(); err != nil {
+			return err
+		}
+	}
+	return d.allFailedError()
 }
 
 // dialOne dials a single alias through its shared jump connection, if any.

@@ -87,9 +87,11 @@ func applyGroupOptions(opts ...GroupOption) groupConfig {
 }
 
 // FailFast returns a [GroupOption] that makes [NewSSHGroup] stop and return
-// an error if any dial fails. Without this option, [NewSSHGroup] collects
-// all dial errors in [Group.DialErrors] and returns only the successfully
-// connected hosts.
+// an error if any dial fails. Targets that have not yet been dialed when the
+// first failure is observed are skipped; combined with [DialConcurrency] this
+// is best-effort, as dials already in flight still run to completion. Without
+// this option, [NewSSHGroup] collects all dial errors in [Group.DialErrors]
+// and returns only the successfully connected hosts.
 func FailFast() GroupOption {
 	return func(cfg *groupConfig) {
 		cfg.failFast = true
