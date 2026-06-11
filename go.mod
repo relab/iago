@@ -8,6 +8,7 @@ require (
 	github.com/relab/container v0.0.0-20260109140004-4adfae874bb5
 	github.com/relab/wrfs v0.0.0-20220416082020-a641cd350078
 	golang.org/x/crypto v0.50.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
