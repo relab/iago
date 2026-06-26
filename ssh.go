@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
+	"net"
+	"os"
 	"strings"
 	"sync"
 
@@ -13,15 +16,18 @@ import (
 	"github.com/relab/iago/sftpfs"
 	fs "github.com/relab/wrfs"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/agent"
 )
 
 type sshHost struct {
-	name       string
-	env        map[string]string
-	client     *ssh.Client
-	sftpClient *sftp.Client
-	fsys       fs.FS
-	vars       map[string]any
+	name         string
+	env          map[string]string
+	client       *ssh.Client
+	sftpClient   *sftp.Client
+	fsys         fs.FS
+	vars         map[string]any
+	forwardAgent bool
+	agentConn    net.Conn // non-nil when agent forwarding is active; closed by Close
 }
 
 // DialSSH connects to a remote host using ssh.
@@ -30,14 +36,14 @@ func DialSSH(name, addr string, cfg *ssh.ClientConfig) (Host, error) {
 	if err != nil {
 		return nil, err
 	}
-	return newHostFromClient(name, client)
+	return newHostFromClient(name, client, false)
 }
 
 // dialViaProxy connects to a remote host by tunnelling through an already-established
 // SSH connection to a jump host. The jump client is not owned by the returned Host;
 // its lifetime is managed by the caller (typically [NewSSHGroup], which shares one
 // jump client across all targets that route through the same ProxyJump spec).
-func dialViaProxy(name, addr string, cfg *ssh.ClientConfig, jump *ssh.Client) (Host, error) {
+func dialViaProxy(name, addr string, cfg *ssh.ClientConfig, jump *ssh.Client, forwardAgent bool) (Host, error) {
 	ctx := context.Background()
 	if cfg.Timeout > 0 {
 		var cancel context.CancelFunc
@@ -52,27 +58,53 @@ func dialViaProxy(name, addr string, cfg *ssh.ClientConfig, jump *ssh.Client) (H
 	if err != nil {
 		return nil, err
 	}
-	return newHostFromClient(name, ssh.NewClient(ncc, chans, reqs))
+	return newHostFromClient(name, ssh.NewClient(ncc, chans, reqs), forwardAgent)
 }
 
 // newHostFromClient wraps an established *ssh.Client as a Host, creating the SFTP
-// sub-client and fetching the remote environment.
-func newHostFromClient(name string, client *ssh.Client) (Host, error) {
+// sub-client and fetching the remote environment. When forwardAgent is true the
+// local SSH agent is connected and registered with the client so that sessions
+// opened via [sshHost.NewCommand] and [sshHost.Execute] can request forwarding.
+func newHostFromClient(name string, client *ssh.Client, forwardAgent bool) (Host, error) {
+	var agentConn net.Conn
+	if forwardAgent {
+		sock := os.Getenv("SSH_AUTH_SOCK")
+		if sock == "" {
+			return nil, fmt.Errorf("iago: ForwardAgent requested for %s but SSH_AUTH_SOCK is not set", name)
+		}
+		var err error
+		agentConn, err = net.Dial("unix", sock)
+		if err != nil {
+			return nil, fmt.Errorf("iago: ForwardAgent requested for %s but could not connect to SSH agent: %w", name, err)
+		}
+		if err := agent.ForwardToAgent(client, agent.NewClient(agentConn)); err != nil {
+			_ = agentConn.Close()
+			return nil, fmt.Errorf("iago: failed to set up agent forwarding for %s: %w", name, err)
+		}
+	}
 	sftpClient, err := sftp.NewClient(client)
 	if err != nil {
+		if agentConn != nil {
+			_ = agentConn.Close()
+		}
 		return nil, err
 	}
 	env, err := fetchEnv(client)
 	if err != nil {
+		if agentConn != nil {
+			_ = agentConn.Close()
+		}
 		return nil, err
 	}
 	return &sshHost{
-		name:       name,
-		env:        env,
-		client:     client,
-		sftpClient: sftpClient,
-		fsys:       sftpfs.New(sftpClient, "/"),
-		vars:       make(map[string]any),
+		name:         name,
+		env:          env,
+		client:       client,
+		sftpClient:   sftpClient,
+		fsys:         sftpfs.New(sftpClient, "/"),
+		vars:         make(map[string]any),
+		forwardAgent: forwardAgent,
+		agentConn:    agentConn,
 	}, nil
 }
 
@@ -115,7 +147,7 @@ func NewSSHGroup(hostAliases []string, sshConfigFile string, opts ...GroupOption
 		return group, err
 	}
 
-	dialer := newGroupDialer(config, hostAliases)
+	dialer := newGroupDialer(config, hostAliases, cfg)
 	defer dialer.closeOnError(&err)
 
 	if err = dialer.prepareJumps(cfg); err != nil {
@@ -144,16 +176,18 @@ func NewSSHGroup(hostAliases []string, sshConfigFile string, opts ...GroupOption
 type groupDialer struct {
 	config      *sshConfig
 	aliases     []string
+	cfg         groupConfig
 	jumpClients map[string]*ssh.Client // proxy spec -> shared jump connection
 	jumpErrs    map[string]error       // proxy spec -> error establishing it
 	hosts       []Host                 // successfully dialed targets
 	dialErrs    map[string]error       // alias -> dial error; nil until first failure
 }
 
-func newGroupDialer(config *sshConfig, aliases []string) *groupDialer {
+func newGroupDialer(config *sshConfig, aliases []string, cfg groupConfig) *groupDialer {
 	return &groupDialer{
 		config:      config,
 		aliases:     aliases,
+		cfg:         cfg,
 		jumpClients: make(map[string]*ssh.Client),
 		jumpErrs:    make(map[string]error),
 	}
@@ -270,7 +304,7 @@ func (d *groupDialer) dialOne(alias string) sshDialResult {
 	if err != nil {
 		return sshDialResult{err: err}
 	}
-	host, err := dialTarget(alias, d.config, jump)
+	host, err := dialTarget(alias, d.config, jump, d.cfg.forwardAgent)
 	return sshDialResult{host: host, err: err}
 }
 
@@ -373,16 +407,27 @@ func dialJump(proxySpec string, config *sshConfig) (*ssh.Client, error) {
 // dialTarget dials a single target alias. When jump is non-nil the connection is
 // tunnelled through that shared jump client; otherwise it is dialed directly. The
 // jump client's lifetime is managed by the caller, not by the returned Host.
-func dialTarget(alias string, config *sshConfig, jump *ssh.Client) (Host, error) {
+// forceForwardAgent forces agent forwarding regardless of the SSH config value;
+// it is set when [ForwardAgent] was passed as a [GroupOption] to [NewSSHGroup].
+func dialTarget(alias string, config *sshConfig, jump *ssh.Client, forceForwardAgent bool) (Host, error) {
 	clientCfg, err := config.ClientConfig(alias)
 	if err != nil {
 		return nil, err
 	}
+	configForwardAgent, err := config.forwardAgent(alias)
+	if err != nil {
+		return nil, err
+	}
+	forwardAgent := forceForwardAgent || configForwardAgent
 	addr := config.ConnectAddr(alias)
 	if jump == nil {
-		return DialSSH(alias, addr, clientCfg)
+		client, err := ssh.Dial("tcp", addr, clientCfg)
+		if err != nil {
+			return nil, err
+		}
+		return newHostFromClient(alias, client, forwardAgent)
 	}
-	return dialViaProxy(alias, addr, clientCfg, jump)
+	return dialViaProxy(alias, addr, clientCfg, jump, forwardAgent)
 }
 
 // fetchEnv returns a map containing the environment variables of the ssh server.
@@ -437,6 +482,14 @@ func (h *sshHost) Execute(ctx context.Context, cmd string) (output string, err e
 		return "", err
 	}
 
+	if h.forwardAgent {
+		if err := agent.RequestAgentForwarding(session); err != nil {
+			// The server denied agent forwarding; log and continue without it.
+			// This matches OpenSSH's -A behaviour: a denial is a warning, not fatal.
+			log.Printf("iago: agent forwarding denied for %s: %v", h.name, err)
+		}
+	}
+
 	childCtx, cancel := context.WithCancel(ctx)
 	// create a channel to wait for helper goroutine
 	c := make(chan struct{})
@@ -463,6 +516,13 @@ func (h *sshHost) NewCommand() (CmdRunner, error) {
 	if err != nil {
 		return nil, err
 	}
+	if h.forwardAgent {
+		if err := agent.RequestAgentForwarding(session); err != nil {
+			// The server denied agent forwarding; log and continue without it.
+			// This matches OpenSSH's -A behaviour: a denial is a warning, not fatal.
+			log.Printf("iago: agent forwarding denied for %s: %v", h.name, err)
+		}
+	}
 	return sshCmd{
 		session: session,
 	}, nil
@@ -474,7 +534,11 @@ func (h *sshHost) NewCommand() (CmdRunner, error) {
 // jump connection is shared with other hosts and not closed here; it is closed
 // by [Group.Close].
 func (h *sshHost) Close() error {
-	return errors.Join(h.sftpClient.Close(), h.client.Close())
+	var agentErr error
+	if h.agentConn != nil {
+		agentErr = h.agentConn.Close()
+	}
+	return errors.Join(h.sftpClient.Close(), h.client.Close(), agentErr)
 }
 
 func (h *sshHost) SetVar(key string, val any) {
