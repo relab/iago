@@ -160,6 +160,16 @@ func (cw *sshConfig) connectTimeout(hostAlias string) (time.Duration, error) {
 	return time.Duration(seconds) * time.Second, nil
 }
 
+// forwardAgent reports whether the SSH agent should be forwarded for the given
+// host alias. It returns true only when ForwardAgent is explicitly set to "yes".
+func (cw *sshConfig) forwardAgent(hostAlias string) (bool, error) {
+	val, err := cw.get(hostAlias, "ForwardAgent")
+	if err != nil {
+		return false, err
+	}
+	return strings.EqualFold(strings.TrimSpace(val), "yes"), nil
+}
+
 // ConnectAddr returns the connection address for the given host alias.
 // If no hostname is specified in the SSH config, it defaults to the provide host alias.
 // An empty string is returned if there was an error retrieving the hostname or port

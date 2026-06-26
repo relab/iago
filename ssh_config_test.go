@@ -352,3 +352,32 @@ func TestParseHostsGlob(t *testing.T) {
 		})
 	}
 }
+
+func TestForwardAgent(t *testing.T) {
+	config, err := ParseSSHConfig("testdata/config")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name      string
+		hostAlias string
+		want      bool
+	}{
+		{"ForwardAgentYes", "proxy-target", true},
+		{"ForwardAgentNotSet", "localhost", false},
+		{"ForwardAgentNotSetWildcard", "asdf", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := config.forwardAgent(tt.hostAlias)
+			if err != nil {
+				t.Fatalf("forwardAgent(%s): unexpected error: %v", tt.hostAlias, err)
+			}
+			if got != tt.want {
+				t.Errorf("forwardAgent(%s) = %v, want %v", tt.hostAlias, got, tt.want)
+			}
+		})
+	}
+}

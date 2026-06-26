@@ -13,6 +13,7 @@ Host proxy-target
     ConnectTimeout 25
     User proxyuser
     ProxyJump jumpbox
+    ForwardAgent yes
     StrictHostKeyChecking no
 
 Host jumpbox

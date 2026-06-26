@@ -76,6 +76,7 @@ type GroupOption func(*groupConfig)
 type groupConfig struct {
 	failFast        bool
 	dialConcurrency int
+	forwardAgent    bool
 }
 
 func applyGroupOptions(opts ...GroupOption) groupConfig {
@@ -106,6 +107,18 @@ func FailFast() GroupOption {
 func DialConcurrency(n int) GroupOption {
 	return func(cfg *groupConfig) {
 		cfg.dialConcurrency = n
+	}
+}
+
+// ForwardAgent returns a [GroupOption] that forces SSH agent forwarding for
+// every host in the group, regardless of the ForwardAgent setting in the SSH
+// config. This is equivalent to passing -A to the ssh command-line tool:
+// each session opened on a dialed host will request agent forwarding so that
+// the remote process can authenticate onward to other hosts using the
+// local agent.
+func ForwardAgent() GroupOption {
+	return func(cfg *groupConfig) {
+		cfg.forwardAgent = true
 	}
 }
 
