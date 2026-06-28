@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/pkg/sftp"
 	"github.com/relab/iago/sftpfs"
@@ -20,14 +21,15 @@ import (
 )
 
 type sshHost struct {
-	name         string
-	env          map[string]string
-	client       *ssh.Client
-	sftpClient   *sftp.Client
-	fsys         fs.FS
-	vars         map[string]any
-	forwardAgent bool
-	agentConn    net.Conn // non-nil when agent forwarding is active; closed by Close
+	name          string
+	env           map[string]string
+	client        *ssh.Client
+	sftpClient    *sftp.Client
+	fsys          fs.FS
+	vars          map[string]any
+	forwardAgent  bool
+	agentConn     net.Conn // non-nil when agent forwarding is active; closed by Close
+	stopKeepAlive func()   // non-nil when keepalives are running; stops them on Close
 }
 
 // DialSSH connects to a remote host using ssh.
@@ -36,14 +38,14 @@ func DialSSH(name, addr string, cfg *ssh.ClientConfig) (Host, error) {
 	if err != nil {
 		return nil, err
 	}
-	return newHostFromClient(name, client, false)
+	return newHostFromClient(name, client, false, 0)
 }
 
 // dialViaProxy connects to a remote host by tunnelling through an already-established
 // SSH connection to a jump host. The jump client is not owned by the returned Host;
 // its lifetime is managed by the caller (typically [NewSSHGroup], which shares one
 // jump client across all targets that route through the same ProxyJump spec).
-func dialViaProxy(name, addr string, cfg *ssh.ClientConfig, jump *ssh.Client, forwardAgent bool) (Host, error) {
+func dialViaProxy(name, addr string, cfg *ssh.ClientConfig, jump *ssh.Client, forwardAgent bool, keepAlive time.Duration) (Host, error) {
 	ctx := context.Background()
 	if cfg.Timeout > 0 {
 		var cancel context.CancelFunc
@@ -58,14 +60,16 @@ func dialViaProxy(name, addr string, cfg *ssh.ClientConfig, jump *ssh.Client, fo
 	if err != nil {
 		return nil, err
 	}
-	return newHostFromClient(name, ssh.NewClient(ncc, chans, reqs), forwardAgent)
+	return newHostFromClient(name, ssh.NewClient(ncc, chans, reqs), forwardAgent, keepAlive)
 }
 
 // newHostFromClient wraps an established *ssh.Client as a Host, creating the SFTP
 // sub-client and fetching the remote environment. When forwardAgent is true the
 // local SSH agent is connected and registered with the client so that sessions
 // opened via [sshHost.NewCommand] and [sshHost.Execute] can request forwarding.
-func newHostFromClient(name string, client *ssh.Client, forwardAgent bool) (Host, error) {
+// When keepAlive is positive, a background goroutine sends periodic SSH
+// keepalives on the connection; it is stopped by [sshHost.Close].
+func newHostFromClient(name string, client *ssh.Client, forwardAgent bool, keepAlive time.Duration) (Host, error) {
 	var agentConn net.Conn
 	if forwardAgent {
 		sock := os.Getenv("SSH_AUTH_SOCK")
@@ -96,7 +100,7 @@ func newHostFromClient(name string, client *ssh.Client, forwardAgent bool) (Host
 		}
 		return nil, err
 	}
-	return &sshHost{
+	host := &sshHost{
 		name:         name,
 		env:          env,
 		client:       client,
@@ -105,7 +109,60 @@ func newHostFromClient(name string, client *ssh.Client, forwardAgent bool) (Host
 		vars:         make(map[string]any),
 		forwardAgent: forwardAgent,
 		agentConn:    agentConn,
-	}, nil
+	}
+	if keepAlive > 0 {
+		// On a dead connection the keepalive fails; close the client so any
+		// session blocked on a read returns instead of hanging indefinitely.
+		host.stopKeepAlive = startKeepAlive(client, keepAlive, func() { _ = client.Close() })
+	}
+	return host, nil
+}
+
+// keepAliveRequest is the OpenSSH-compatible global request name used to probe a
+// connection's liveness; the server replies but takes no other action.
+const keepAliveRequest = "keepalive@openssh.com"
+
+// keepAlivePinger is the subset of [ssh.Client] the keepalive loop needs, so the
+// loop can be exercised in tests without a live connection.
+type keepAlivePinger interface {
+	SendRequest(name string, wantReply bool, payload []byte) (bool, []byte, error)
+}
+
+// startKeepAlive launches a goroutine that pings client every interval and
+// returns a function that stops it. When a ping fails, onDead is invoked once
+// (typically to close the connection so blocked sessions return) and the loop
+// exits. The returned stop function is idempotent and safe to call from Close.
+func startKeepAlive(client keepAlivePinger, interval time.Duration, onDead func()) func() {
+	done := make(chan struct{})
+	ticker := time.NewTicker(interval)
+	go keepAliveLoop(client, ticker.C, onDead, done)
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			close(done)
+			ticker.Stop()
+		})
+	}
+}
+
+// keepAliveLoop pings client on every tick until either a ping fails (then it
+// calls onDead, if set, and returns) or done is closed (then it returns
+// silently). It is split from [startKeepAlive] so tests can drive the tick
+// channel deterministically.
+func keepAliveLoop(client keepAlivePinger, tick <-chan time.Time, onDead func(), done <-chan struct{}) {
+	for {
+		select {
+		case <-done:
+			return
+		case <-tick:
+			if _, _, err := client.SendRequest(keepAliveRequest, true, nil); err != nil {
+				if onDead != nil {
+					onDead()
+				}
+				return
+			}
+		}
+	}
 }
 
 // NewSSHGroup returns a new ssh group from the given host aliases. The sshConfigFile
@@ -304,7 +361,7 @@ func (d *groupDialer) dialOne(alias string) sshDialResult {
 	if err != nil {
 		return sshDialResult{err: err}
 	}
-	host, err := dialTarget(alias, d.config, jump, d.cfg.forwardAgent)
+	host, err := dialTarget(alias, d.config, jump, d.cfg.forwardAgent, d.cfg.keepAliveInterval)
 	return sshDialResult{host: host, err: err}
 }
 
@@ -409,7 +466,8 @@ func dialJump(proxySpec string, config *sshConfig) (*ssh.Client, error) {
 // jump client's lifetime is managed by the caller, not by the returned Host.
 // forceForwardAgent forces agent forwarding regardless of the SSH config value;
 // it is set when [ForwardAgent] was passed as a [GroupOption] to [NewSSHGroup].
-func dialTarget(alias string, config *sshConfig, jump *ssh.Client, forceForwardAgent bool) (Host, error) {
+// keepAlive, when positive, starts periodic SSH keepalives on the connection.
+func dialTarget(alias string, config *sshConfig, jump *ssh.Client, forceForwardAgent bool, keepAlive time.Duration) (Host, error) {
 	clientCfg, err := config.ClientConfig(alias)
 	if err != nil {
 		return nil, err
@@ -425,9 +483,9 @@ func dialTarget(alias string, config *sshConfig, jump *ssh.Client, forceForwardA
 		if err != nil {
 			return nil, err
 		}
-		return newHostFromClient(alias, client, forwardAgent)
+		return newHostFromClient(alias, client, forwardAgent, keepAlive)
 	}
-	return dialViaProxy(alias, addr, clientCfg, jump, forwardAgent)
+	return dialViaProxy(alias, addr, clientCfg, jump, forwardAgent, keepAlive)
 }
 
 // fetchEnv returns a map containing the environment variables of the ssh server.
@@ -485,7 +543,7 @@ func (h *sshHost) Execute(ctx context.Context, cmd string) (output string, err e
 	if h.forwardAgent {
 		if err := agent.RequestAgentForwarding(session); err != nil {
 			// The server denied agent forwarding; log and continue without it.
-			// This matches OpenSSH's -A behaviour: a denial is a warning, not fatal.
+			// This matches OpenSSH's -A behavior: a denial is a warning, not fatal.
 			log.Printf("iago: agent forwarding denied for %s: %v", h.name, err)
 		}
 	}
@@ -519,7 +577,7 @@ func (h *sshHost) NewCommand() (CmdRunner, error) {
 	if h.forwardAgent {
 		if err := agent.RequestAgentForwarding(session); err != nil {
 			// The server denied agent forwarding; log and continue without it.
-			// This matches OpenSSH's -A behaviour: a denial is a warning, not fatal.
+			// This matches OpenSSH's -A behavior: a denial is a warning, not fatal.
 			log.Printf("iago: agent forwarding denied for %s: %v", h.name, err)
 		}
 	}
@@ -534,6 +592,9 @@ func (h *sshHost) NewCommand() (CmdRunner, error) {
 // jump connection is shared with other hosts and not closed here; it is closed
 // by [Group.Close].
 func (h *sshHost) Close() error {
+	if h.stopKeepAlive != nil {
+		h.stopKeepAlive()
+	}
 	var agentErr error
 	if h.agentConn != nil {
 		agentErr = h.agentConn.Close()
