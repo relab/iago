@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"sync"
 	"time"
 
 	fs "github.com/relab/wrfs"
@@ -185,11 +186,18 @@ func (g Group) Run(name string, f func(context.Context, Host) error) {
 
 // Close closes any connections to hosts and any group-owned shared resources
 // (such as ProxyJump connections shared across hosts in this group).
-func (g Group) Close() (err error) {
-	for _, h := range g.Hosts {
-		// Join close errors; nil errors are discarded by Join.
-		err = errors.Join(err, h.Close())
+// Hosts are closed concurrently; shared resources (e.g. ProxyJump clients)
+// are closed sequentially after all hosts have been closed.
+func (g Group) Close() error {
+	errs := make([]error, len(g.Hosts))
+	var wg sync.WaitGroup
+	for i, h := range g.Hosts {
+		wg.Go(func() {
+			errs[i] = h.Close()
+		})
 	}
+	wg.Wait()
+	err := errors.Join(errs...)
 	for _, c := range g.sharedClosers {
 		err = errors.Join(err, c.Close())
 	}
