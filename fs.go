@@ -123,6 +123,10 @@ func (u Upload) Apply(ctx context.Context, host Host) error {
 }
 
 // Download downloads a file or directory from a remote host.
+// For each host in a group, a subdirectory named after the host is created
+// under Dest so that results from multiple hosts do not collide.
+// Use DownloadDir when you are downloading from a single host and want the
+// remote directory's contents placed directly into the local destination.
 type Download struct {
 	Src  Path
 	Dest Path
@@ -132,6 +136,67 @@ type Download struct {
 // Apply performs the download.
 func (d Download) Apply(ctx context.Context, host Host) error {
 	return copyAction{src: d.Src, dest: d.Dest, perm: d.Perm, fetch: true}.Apply(ctx, host)
+}
+
+// ProgressFunc is called during a file transfer to report incremental progress.
+// n is the number of bytes just transferred.
+type ProgressFunc func(n int64)
+
+// DownloadDir downloads the contents of a remote directory directly into a
+// local destination via SFTP, without adding a per-host subdirectory. Use
+// this instead of Download when fetching from a single host and direct
+// placement is desired. Progress, if non-nil, is called with each chunk of
+// bytes transferred.
+type DownloadDir struct {
+	Src      Path
+	Dest     Path
+	Progress ProgressFunc
+}
+
+// Apply downloads the contents of d.Src on host into d.Dest.
+func (d DownloadDir) Apply(_ context.Context, host Host) error {
+	from, err := fs.Sub(host.GetFS(), removeSlash(d.Src.prefix))
+	if err != nil {
+		return err
+	}
+	to := fs.DirFS(d.Dest.prefix)
+	return copyDir(d.Src.path, d.Dest.path, Perm{}, from, to, d.Progress)
+}
+
+// Size returns the total byte count of all files under d.Src on host.
+// Directory metadata is not counted. Call this before Apply to obtain the
+// total for progress display.
+func (d DownloadDir) Size(_ context.Context, host Host) (int64, error) {
+	from, err := fs.Sub(host.GetFS(), removeSlash(d.Src.prefix))
+	if err != nil {
+		return 0, err
+	}
+	return totalSize(from, d.Src.path)
+}
+
+func totalSize(fsys fs.FS, dir string) (int64, error) {
+	entries, err := fs.ReadDir(fsys, dir)
+	if err != nil {
+		return 0, err
+	}
+	var total int64
+	for _, e := range entries {
+		p := path.Join(dir, e.Name())
+		if e.IsDir() {
+			n, err := totalSize(fsys, p)
+			if err != nil {
+				return total, err
+			}
+			total += n
+		} else {
+			info, err := e.Info()
+			if err != nil {
+				return total, err
+			}
+			total += info.Size()
+		}
+	}
+	return total, nil
 }
 
 type copyAction struct {
@@ -171,17 +236,17 @@ func (ca copyAction) Apply(_ context.Context, host Host) (err error) {
 			// since we might be copying from multiple hosts, we will create a subdirectory in the destination folder
 			dest = filepath.Join(dest, host.Name())
 		}
-		return copyDir(ca.src.path, dest, ca.perm, from, to)
+		return copyDir(ca.src.path, dest, ca.perm, from, to, nil)
 	}
 	dest := ca.dest.path
 	if ca.fetch {
 		// since we might be copying from multiple hosts, we add the host's name to the destination file
 		dest += "." + host.Name()
 	}
-	return copyFile(ca.src.path, dest, ca.perm, from, to)
+	return copyFile(ca.src.path, dest, ca.perm, from, to, nil)
 }
 
-func copyDir(src, dest string, perm Perm, from, to fs.FS) error {
+func copyDir(src, dest string, perm Perm, from, to fs.FS, progress ProgressFunc) error {
 	files, err := fs.ReadDir(from, src)
 	if err != nil {
 		return err
@@ -194,9 +259,9 @@ func copyDir(src, dest string, perm Perm, from, to fs.FS) error {
 
 	for _, info := range files {
 		if info.IsDir() {
-			err = copyDir(path.Join(src, info.Name()), path.Join(dest, info.Name()), perm, from, to)
+			err = copyDir(path.Join(src, info.Name()), path.Join(dest, info.Name()), perm, from, to, progress)
 		} else {
-			err = copyFile(path.Join(src, info.Name()), path.Join(dest, info.Name()), perm, from, to)
+			err = copyFile(path.Join(src, info.Name()), path.Join(dest, info.Name()), perm, from, to, progress)
 		}
 		if err != nil {
 			return err
@@ -205,7 +270,7 @@ func copyDir(src, dest string, perm Perm, from, to fs.FS) error {
 	return nil
 }
 
-func copyFile(src, dest string, perm Perm, from fs.FS, to fs.FS) (err error) {
+func copyFile(src, dest string, perm Perm, from fs.FS, to fs.FS, progress ProgressFunc) (err error) {
 	fromF, err := from.Open(src)
 	if err != nil {
 		return err
@@ -223,6 +288,23 @@ func copyFile(src, dest string, perm Perm, from fs.FS, to fs.FS) (err error) {
 		return fmt.Errorf("cannot write to %s: %w", dest, fs.ErrUnsupported)
 	}
 
-	_, err = io.Copy(writer, fromF)
+	var r io.Reader = fromF
+	if progress != nil {
+		r = &progressReader{r: fromF, fn: progress}
+	}
+	_, err = io.Copy(writer, r)
 	return err
+}
+
+type progressReader struct {
+	r  io.Reader
+	fn ProgressFunc
+}
+
+func (pr *progressReader) Read(p []byte) (int, error) {
+	n, err := pr.r.Read(p)
+	if n > 0 {
+		pr.fn(int64(n))
+	}
+	return n, err
 }
