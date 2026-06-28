@@ -74,9 +74,10 @@ func GetIntVar(host Host, key string) int {
 type GroupOption func(*groupConfig)
 
 type groupConfig struct {
-	failFast        bool
-	dialConcurrency int
-	forwardAgent    bool
+	failFast          bool
+	dialConcurrency   int
+	forwardAgent      bool
+	keepAliveInterval time.Duration
 }
 
 func applyGroupOptions(opts ...GroupOption) groupConfig {
@@ -107,6 +108,20 @@ func FailFast() GroupOption {
 func DialConcurrency(n int) GroupOption {
 	return func(cfg *groupConfig) {
 		cfg.dialConcurrency = n
+	}
+}
+
+// KeepAlive returns a [GroupOption] that sends an SSH keepalive request on every
+// dialed connection every interval. golang.org/x/crypto/ssh does not honor the
+// OpenSSH ServerAliveInterval config directive, so without this a connection
+// left idle (for example, a control channel streaming a long, quiet remote run)
+// can be silently dropped by a NAT or firewall idle timeout. The periodic
+// traffic keeps the mapping alive; if a keepalive fails, the connection is
+// closed so any in-flight session unblocks promptly instead of hanging. An
+// interval of zero or less disables keepalives (the default).
+func KeepAlive(interval time.Duration) GroupOption {
+	return func(cfg *groupConfig) {
+		cfg.keepAliveInterval = interval
 	}
 }
 
