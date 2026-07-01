@@ -21,16 +21,16 @@ import (
 )
 
 type sshHost struct {
-	name              string
-	env               map[string]string
-	client            *ssh.Client
-	sftpClient        *sftp.Client
-	fsys              fs.FS
-	vars              map[string]any
-	forwardAgent      bool
-	agentConn         net.Conn  // non-nil when agent forwarding is active; closed by Close
-	stopKeepAlive     func()    // non-nil when keepalives are running; stops them on Close
-	agentDeniedLogged sync.Once // logs an agent-forwarding denial at most once per host
+	name          string
+	env           map[string]string
+	client        *ssh.Client
+	sftpClient    *sftp.Client
+	fsys          fs.FS
+	vars          map[string]any
+	forwardAgent  bool
+	agentConn     net.Conn  // non-nil when agent forwarding is active; closed by Close
+	stopKeepAlive func()    // non-nil when keepalives are running; stops them on Close
+	agentFwdOnce  sync.Once // sends auth-agent-req on the first session only (see requestAgentForwarding)
 }
 
 // DialSSH connects to a remote host using ssh.
@@ -578,22 +578,30 @@ func (h *sshHost) NewCommand() (CmdRunner, error) {
 	}, nil
 }
 
-// requestAgentForwarding asks the server to forward the local SSH agent to the
-// session when this host was dialed with agent forwarding enabled. A denial is
-// non-fatal (matching OpenSSH's -A behavior) and continues without forwarding.
-// Because iago requests forwarding on every session but a server may honor it
-// only for some, the denial is logged at most once per host so a long run does
-// not spam the log with one line per session; a session that genuinely needs
-// the forwarded agent surfaces its own failure downstream.
+// requestAgentForwarding asks the server to forward the local SSH agent when
+// this host was dialed with agent forwarding enabled. The request is sent on
+// the first session only: OpenSSH's sshd honors auth-agent-req at most once
+// per connection and the grant is connection-wide — the agent socket persists
+// until the connection closes and is injected as SSH_AUTH_SOCK into every
+// later session. Requesting on every session therefore yields a spurious
+// "forwarding request denied" on each session after the first, so later
+// sessions skip the request and ride on the connection-wide grant. A denial
+// of the one real request is non-fatal (matching OpenSSH's -A behavior) and
+// is logged; a session that genuinely needs the forwarded agent surfaces its
+// own failure downstream.
+//
+// Note: this relies on OpenSSH's connection-wide forwarding model; a server
+// that scopes forwarding strictly per session would forward only to the first
+// session. OpenSSH is the deployment target.
 func (h *sshHost) requestAgentForwarding(session *ssh.Session) {
 	if !h.forwardAgent {
 		return
 	}
-	if err := agent.RequestAgentForwarding(session); err != nil {
-		h.agentDeniedLogged.Do(func() {
-			log.Printf("iago: agent forwarding denied for %s: %v (further denials on this host suppressed)", h.name, err)
-		})
-	}
+	h.agentFwdOnce.Do(func() {
+		if err := agent.RequestAgentForwarding(session); err != nil {
+			log.Printf("iago: agent forwarding denied for %s: %v", h.name, err)
+		}
+	})
 }
 
 // Close closes the connection to the host.
