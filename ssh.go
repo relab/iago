@@ -21,15 +21,16 @@ import (
 )
 
 type sshHost struct {
-	name          string
-	env           map[string]string
-	client        *ssh.Client
-	sftpClient    *sftp.Client
-	fsys          fs.FS
-	vars          map[string]any
-	forwardAgent  bool
-	agentConn     net.Conn // non-nil when agent forwarding is active; closed by Close
-	stopKeepAlive func()   // non-nil when keepalives are running; stops them on Close
+	name              string
+	env               map[string]string
+	client            *ssh.Client
+	sftpClient        *sftp.Client
+	fsys              fs.FS
+	vars              map[string]any
+	forwardAgent      bool
+	agentConn         net.Conn  // non-nil when agent forwarding is active; closed by Close
+	stopKeepAlive     func()    // non-nil when keepalives are running; stops them on Close
+	agentDeniedLogged sync.Once // logs an agent-forwarding denial at most once per host
 }
 
 // DialSSH connects to a remote host using ssh.
@@ -543,13 +544,7 @@ func (h *sshHost) Execute(ctx context.Context, cmd string) (output string, err e
 		return "", err
 	}
 
-	if h.forwardAgent {
-		if err := agent.RequestAgentForwarding(session); err != nil {
-			// The server denied agent forwarding; log and continue without it.
-			// This matches OpenSSH's -A behavior: a denial is a warning, not fatal.
-			log.Printf("iago: agent forwarding denied for %s: %v", h.name, err)
-		}
-	}
+	h.requestAgentForwarding(session)
 
 	childCtx, cancel := context.WithCancel(ctx)
 	// create a channel to wait for helper goroutine
@@ -577,16 +572,28 @@ func (h *sshHost) NewCommand() (CmdRunner, error) {
 	if err != nil {
 		return nil, err
 	}
-	if h.forwardAgent {
-		if err := agent.RequestAgentForwarding(session); err != nil {
-			// The server denied agent forwarding; log and continue without it.
-			// This matches OpenSSH's -A behavior: a denial is a warning, not fatal.
-			log.Printf("iago: agent forwarding denied for %s: %v", h.name, err)
-		}
-	}
+	h.requestAgentForwarding(session)
 	return sshCmd{
 		session: session,
 	}, nil
+}
+
+// requestAgentForwarding asks the server to forward the local SSH agent to the
+// session when this host was dialed with agent forwarding enabled. A denial is
+// non-fatal (matching OpenSSH's -A behavior) and continues without forwarding.
+// Because iago requests forwarding on every session but a server may honor it
+// only for some, the denial is logged at most once per host so a long run does
+// not spam the log with one line per session; a session that genuinely needs
+// the forwarded agent surfaces its own failure downstream.
+func (h *sshHost) requestAgentForwarding(session *ssh.Session) {
+	if !h.forwardAgent {
+		return
+	}
+	if err := agent.RequestAgentForwarding(session); err != nil {
+		h.agentDeniedLogged.Do(func() {
+			log.Printf("iago: agent forwarding denied for %s: %v (further denials on this host suppressed)", h.name, err)
+		})
+	}
 }
 
 // Close closes the connection to the host.
