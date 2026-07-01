@@ -86,7 +86,10 @@ func newHostFromClient(name string, client *ssh.Client, forwardAgent bool, keepA
 			return nil, fmt.Errorf("iago: failed to set up agent forwarding for %s: %w", name, err)
 		}
 	}
-	sftpClient, err := sftp.NewClient(client)
+	sftpClient, err := sftp.NewClient(client,
+		sftp.UseConcurrentWrites(true),
+		sftp.UseConcurrentReads(true),
+	)
 	if err != nil {
 		if agentConn != nil {
 			_ = agentConn.Close()
