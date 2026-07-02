@@ -79,6 +79,7 @@ type groupConfig struct {
 	dialConcurrency   int
 	forwardAgent      bool
 	keepAliveInterval time.Duration
+	errorHandler      ErrorHandler
 }
 
 func applyGroupOptions(opts ...GroupOption) groupConfig {
@@ -135,6 +136,22 @@ func KeepAlive(interval time.Duration) GroupOption {
 func ForwardAgent() GroupOption {
 	return func(cfg *groupConfig) {
 		cfg.forwardAgent = true
+	}
+}
+
+// WithErrorHandler returns a [GroupOption] that sets the [ErrorHandler] of the
+// group returned by [NewSSHGroup]. Without it the group defaults to [Panic],
+// matching [NewGroup]. Pass a shared [Errors] collector's Handle method to
+// gather task errors instead of panicking:
+//
+//	var errs iago.Errors
+//	g, err := iago.NewSSHGroup(aliases, cfg, iago.WithErrorHandler(errs.Handle))
+//	// ...
+//	g.Run("task", task)
+//	return errs.Err()
+func WithErrorHandler(h ErrorHandler) GroupOption {
+	return func(cfg *groupConfig) {
+		cfg.errorHandler = h
 	}
 }
 
@@ -215,6 +232,40 @@ func Panic(e error) {
 // Ignore ignores errors.
 func Ignore(e error) {
 	log.Println(e, "(ignored)")
+}
+
+// Errors is an [ErrorHandler] that accumulates the errors passed to it for
+// later retrieval instead of panicking like [Panic]. It is the collecting
+// counterpart to [Panic] and [Ignore], for a caller that runs a task on every
+// host and then acts on the joined result:
+//
+//	var errs iago.Errors
+//	g.ErrorHandler = errs.Handle
+//	g.Run("task", task)
+//	return errs.Err()
+//
+// [Group.Run] invokes the handler sequentially, so within a single Run the
+// collector is uncontended; the mutex makes it safe to share one Errors across
+// concurrent Runs as well. The zero value is ready to use.
+type Errors struct {
+	mu   sync.Mutex
+	errs []error
+}
+
+// Handle records err. It satisfies the [ErrorHandler] signature, so it can be
+// assigned to [Group.ErrorHandler] or passed to [WithErrorHandler].
+func (e *Errors) Handle(err error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.errs = append(e.errs, err)
+}
+
+// Err returns the recorded errors joined with [errors.Join], or nil when none
+// were recorded.
+func (e *Errors) Err() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return errors.Join(e.errs...)
 }
 
 func safeClose(closer io.Closer, errPtr *error, ignoredErrs ...error) {

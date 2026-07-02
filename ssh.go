@@ -418,6 +418,9 @@ func (d *groupDialer) allFailedError() error {
 func (d *groupDialer) group() Group {
 	group := NewGroup(d.hosts)
 	group.DialErrors = d.dialErrs
+	if d.cfg.errorHandler != nil {
+		group.ErrorHandler = d.cfg.errorHandler
+	}
 	for _, jc := range d.jumpClients {
 		group.sharedClosers = append(group.sharedClosers, jc)
 	}
