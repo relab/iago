@@ -48,3 +48,23 @@ func TestOutputPropagatesError(t *testing.T) {
 		t.Fatalf("Output error = %v, want %v", err, wantErr)
 	}
 }
+
+func TestQuote(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "plain", in: "hello", want: "'hello'"},
+		{name: "spaces", in: "hello world", want: "'hello world'"},
+		{name: "single quote", in: "it's", want: `'it'\''s'`},
+		{name: "empty", in: "", want: "''"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := Quote(tt.in); got != tt.want {
+				t.Errorf("Quote(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
