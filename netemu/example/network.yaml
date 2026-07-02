@@ -1,0 +1,55 @@
+# netemu test configuration
+# Controller: bbchain1
+# Nodes:      bbchain2..bbchain15  → group: lan  (1gbit, 1ms)
+#             bbchain16..bbchain30 → group: wan  (100mbit, 50ms)
+# Cross-group (lan↔wan) links use the wan profile.
+
+interface: enp1s0f0np0
+
+profiles:
+  lan:
+    rate: 1gbit
+    delay: 1ms
+  wan:
+    rate: 100mbit
+    delay: 50ms
+    loss: 0.1
+
+link_profiles:
+  - {from_group: lan, to_group: lan, profile: lan}
+  - {from_group: wan, to_group: wan, profile: wan}
+  - {from_group: lan, to_group: wan, profile: wan}
+  - {from_group: wan, to_group: lan, profile: wan}
+
+replicas:
+  # LAN group (bbchain2–bbchain15)
+  - {id: "2",  host: bbchain2,  ip: 152.94.162.12, port: 7000, group: lan}
+  - {id: "3",  host: bbchain3,  ip: 152.94.162.13, port: 7000, group: lan}
+  - {id: "4",  host: bbchain4,  ip: 152.94.162.14, port: 7000, group: lan}
+  - {id: "5",  host: bbchain5,  ip: 152.94.162.15, port: 7000, group: lan}
+  - {id: "6",  host: bbchain6,  ip: 152.94.162.16, port: 7000, group: lan}
+  - {id: "7",  host: bbchain7,  ip: 152.94.162.17, port: 7000, group: lan}
+  - {id: "8",  host: bbchain8,  ip: 152.94.162.18, port: 7000, group: lan}
+  - {id: "9",  host: bbchain9,  ip: 152.94.162.19, port: 7000, group: lan}
+  - {id: "10", host: bbchain10, ip: 152.94.162.20, port: 7000, group: lan}
+  - {id: "11", host: bbchain11, ip: 152.94.162.21, port: 7000, group: lan}
+  - {id: "12", host: bbchain12, ip: 152.94.162.22, port: 7000, group: lan}
+  - {id: "13", host: bbchain13, ip: 152.94.162.23, port: 7000, group: lan}
+  - {id: "14", host: bbchain14, ip: 152.94.162.24, port: 7000, group: lan}
+  - {id: "15", host: bbchain15, ip: 152.94.162.25, port: 7000, group: lan}
+  # WAN group (bbchain16–bbchain30)
+  - {id: "16", host: bbchain16, ip: 152.94.162.26, port: 7000, group: wan}
+  - {id: "17", host: bbchain17, ip: 152.94.162.27, port: 7000, group: wan}
+  - {id: "18", host: bbchain18, ip: 152.94.162.28, port: 7000, group: wan}
+  - {id: "19", host: bbchain19, ip: 152.94.162.29, port: 7000, group: wan}
+  - {id: "20", host: bbchain20, ip: 152.94.162.30, port: 7000, group: wan}
+  - {id: "21", host: bbchain21, ip: 152.94.162.31, port: 7000, group: wan}
+  - {id: "22", host: bbchain22, ip: 152.94.162.32, port: 7000, group: wan}
+  - {id: "23", host: bbchain23, ip: 152.94.162.33, port: 7000, group: wan}
+  - {id: "24", host: bbchain24, ip: 152.94.162.34, port: 7000, group: wan}
+  - {id: "25", host: bbchain25, ip: 152.94.162.35, port: 7000, group: wan}
+  - {id: "26", host: bbchain26, ip: 152.94.162.36, port: 7000, group: wan}
+  - {id: "27", host: bbchain27, ip: 152.94.162.37, port: 7000, group: wan}
+  - {id: "28", host: bbchain28, ip: 152.94.162.38, port: 7000, group: wan}
+  - {id: "29", host: bbchain29, ip: 152.94.162.39, port: 7000, group: wan}
+  - {id: "30", host: bbchain30, ip: 152.94.162.40, port: 7000, group: wan}
