@@ -101,7 +101,7 @@ func Output(ctx context.Context, host Host, cmd string) (string, error) {
 
 // Quote wraps s in single quotes so it is safe to embed as one argument in a
 // [Shell] command run on a POSIX shell. An embedded single quote is escaped
-// using the '\” idiom: end the quoted string, emit an escaped quote, and
+// using the `'\''` idiom: end the quoted string, emit an escaped quote, and
 // resume quoting.
 func Quote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
