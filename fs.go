@@ -122,6 +122,27 @@ func (u Upload) Apply(ctx context.Context, host Host) error {
 	return copyAction{src: u.Src, dest: u.Dest, perm: u.Perm, fetch: false}.Apply(ctx, host)
 }
 
+// UploadFile uploads the local file at localPath to remotePath on host with
+// the given permissions. It is a convenience wrapper around [Upload] for a
+// single file, handling the [Path] conversion of an already-absolute local
+// path and an absolute remote path so callers do not repeat that boilerplate
+// at every call site.
+func UploadFile(ctx context.Context, host Host, localPath, remotePath string, perm Perm) error {
+	absLocal, err := filepath.Abs(localPath)
+	if err != nil {
+		return err
+	}
+	src, err := NewPathFromAbs(absLocal)
+	if err != nil {
+		return err
+	}
+	dest, err := NewPath(filepath.Dir(remotePath), filepath.Base(remotePath))
+	if err != nil {
+		return err
+	}
+	return Upload{Src: src, Dest: dest, Perm: perm}.Apply(ctx, host)
+}
+
 // Download downloads a file or directory from a remote host.
 // For each host in a group, a subdirectory named after the host is created
 // under Dest so that results from multiple hosts do not collide.

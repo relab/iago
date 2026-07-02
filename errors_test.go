@@ -9,16 +9,18 @@ import (
 
 // fakeHost is a no-op Host for exercising Group.Run without a real
 // connection. Name is used to label task errors; cmd, if set, backs
-// NewCommand for tests that exercise Shell/Output.
+// NewCommand for tests that exercise Shell/Output; fsys, if set, backs GetFS
+// for tests that exercise Upload/UploadFile.
 type fakeHost struct {
 	name string
 	cmd  CmdRunner
+	fsys fs.FS
 }
 
 func (h fakeHost) Name() string                   { return h.name }
 func (h fakeHost) Address() string                { return h.name }
 func (h fakeHost) GetEnv(string) string           { return "" }
-func (h fakeHost) GetFS() fs.FS                   { return nil }
+func (h fakeHost) GetFS() fs.FS                   { return h.fsys }
 func (h fakeHost) NewCommand() (CmdRunner, error) { return h.cmd, nil }
 func (h fakeHost) Close() error                   { return nil }
 func (h fakeHost) SetVar(string, any)             {}
