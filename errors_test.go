@@ -83,3 +83,29 @@ func TestGroupRunCollectsErrors(t *testing.T) {
 		t.Fatalf("TaskError host = %q, want b", te.HostName)
 	}
 }
+
+func TestCollect(t *testing.T) {
+	g := NewGroup([]Host{fakeHost{name: "a"}, fakeHost{name: "b"}, fakeHost{name: "c"}})
+
+	results, err := Collect(g, "task", func(ctx context.Context, host Host) (int, error) {
+		if host.Name() == "b" {
+			return 0, errors.New("task failed")
+		}
+		return len(host.Name()), nil
+	})
+
+	if err == nil {
+		t.Fatal("expected an error from host b, got nil")
+	}
+	if len(results) != 2 {
+		t.Fatalf("results = %v, want exactly hosts a and c", results)
+	}
+	if _, ok := results["b"]; ok {
+		t.Fatal("host b returned an error but still has an entry")
+	}
+	for _, host := range []string{"a", "c"} {
+		if got, want := results[host], 1; got != want {
+			t.Fatalf("results[%q] = %d, want %d", host, got, want)
+		}
+	}
+}
