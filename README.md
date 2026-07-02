@@ -152,6 +152,66 @@ process or a Unix-domain socket.
 The shared connection is owned by the `Group` and closed by `group.Close()`.
 Closing an individual `iago.Host` closes only that host's tunnel.
 
+## Collecting results and errors
+
+`Group.Run` runs a task on every host but discards each host's return value beyond
+passing it to `ErrorHandler`. `iago.Collect` is the value-returning counterpart: it
+runs a function that returns `(T, error)` on every host and returns a
+`map[string]T` keyed by host name, plus a joined error for any host that failed.
+
+```go
+versions, err := iago.Collect(g, "Get kernel version", func(ctx context.Context, host iago.Host) (string, error) {
+	return iago.Output(ctx, host, "uname -r")
+})
+```
+
+`iago.Output` is a convenience wrapper around `Shell` for the common case of
+wanting a command's captured stdout as a string rather than streaming it to a
+caller-provided writer.
+
+By default, a group's `ErrorHandler` panics on the first task error. Pass
+`iago.WithErrorHandler` to `NewSSHGroup` to collect errors instead, using the
+`iago.Errors` accumulator:
+
+```go
+var errs iago.Errors
+g, err := iago.NewSSHGroup(hosts, configPath, iago.WithErrorHandler(errs.Handle))
+// ...
+g.Run("task", task)
+return errs.Err()
+```
+
+`Collect` uses this pattern internally, so its returned error is already joined
+the same way.
+
+## Shell command helpers
+
+`iago.Quote` wraps a string in single quotes so it is safe to embed as one
+argument in a `Shell` command run on a POSIX shell.
+
+`iago.FileExists` and `iago.DirExists` check whether a path exists on a remote
+host, backed by `test -f` / `test -d`:
+
+```go
+ok, err := iago.FileExists(ctx, host, "/etc/os-release")
+```
+
+Both distinguish "the path fails the test" (returns `false, nil`) from a
+genuine failure such as a transport error (returns `false, err`), using the
+`iago.ExitStatus` interface to inspect a remote command's exit code without
+importing `golang.org/x/crypto/ssh` directly.
+
+## UploadFile
+
+`iago.UploadFile` is a convenience wrapper around `Upload` for a single file,
+handling the `Path` conversion for an already-absolute local path and an
+absolute remote path so callers do not repeat that boilerplate at every call
+site:
+
+```go
+err := iago.UploadFile(ctx, host, "/local/path/binary", "/remote/path/binary", iago.NewPerm(0o755))
+```
+
 ## Example
 
 The following example downloads a file from each remote host.
