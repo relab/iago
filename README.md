@@ -39,11 +39,28 @@ g.ErrorHandler = func(e error) {
 }
 ```
 
+## Agent forwarding and keepalives
+
+Pass `iago.ForwardAgent()` to `NewSSHGroup` to forward the local SSH agent to every
+host in the group, regardless of the `ForwardAgent` setting in the SSH config file —
+equivalent to `ssh -A`. This lets a remote host authenticate onward to other hosts
+using the caller's local agent, for example when a driver node SSHes into peer nodes.
+Forwarding can also be enabled per host via `ForwardAgent yes` in the SSH config file.
+
+Pass `iago.KeepAlive(interval)` to send a periodic SSH keepalive on every dialed
+connection, so an idle connection (for example, a control channel streaming a long,
+quiet remote run) is not silently dropped by a NAT or firewall idle timeout:
+
+```go
+g, err := iago.NewSSHGroup(hosts, configPath, iago.ForwardAgent(), iago.KeepAlive(30*time.Second))
+```
+
 ## SSH config files
 
 `iago.NewSSHGroup` reads an OpenSSH-style config file (defaulting to `~/.ssh/config`).
 It honours the following per-host options: `Hostname`, `Port`, `User`, `IdentityFile`,
-`ProxyJump`, `ConnectTimeout`, `StrictHostKeyChecking`, and `UserKnownHostsFile`.
+`ProxyJump`, `ConnectTimeout`, `StrictHostKeyChecking`, `UserKnownHostsFile`, and
+`ForwardAgent`.
 OpenSSH's **first-match-wins** rule applies: the first `Host` stanza that matches a given
 alias wins for each option.
 
