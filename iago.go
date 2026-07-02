@@ -202,20 +202,15 @@ func (g Group) Run(name string, f func(context.Context, Host) error) {
 }
 
 // Collect runs fn concurrently on every host in g and returns each host's
-// result keyed by host name, the value-returning counterpart to [Group.Run].
-// A host whose fn returns a non-nil error contributes no entry to the map;
-// that error is still delivered to g.ErrorHandler exactly as in Run, and the
-// joined result is returned as Collect's second value (nil when every host
-// succeeded). Writes into the returned map are synchronized, so callers need
-// no mutex of their own.
-//
-// A legitimate "nothing to report" for one host — an empty result, not a
-// failure — should be represented as a zero-value T with a nil error, so it
-// still gets an entry; reserve the error return for genuine command
-// failures and filter zero-value entries out afterward if desired.
+// result keyed by host name. A host whose fn returns a non-nil error
+// contributes no entry to the map; those errors are joined and returned as
+// Collect's second value (nil when every host succeeded).
 func Collect[T any](g Group, name string, fn func(context.Context, Host) (T, error)) (map[string]T, error) {
 	results := make(map[string]T, len(g.Hosts))
 	var mu sync.Mutex
+	// Collect its own errors rather than g's original ErrorHandler, so
+	// they can be joined and returned instead of panicking or being
+	// silently handled elsewhere.
 	var errs Errors
 	g.ErrorHandler = errs.Handle
 	g.Run(name, func(ctx context.Context, host Host) error {
