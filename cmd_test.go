@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -66,5 +67,49 @@ func TestQuote(t *testing.T) {
 				t.Errorf("Quote(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})
+	}
+}
+
+// fakeExitError is a minimal error implementing ExitStatus, standing in for
+// golang.org/x/crypto/ssh's *ssh.ExitError in tests.
+type fakeExitError struct{ status int }
+
+func (e fakeExitError) Error() string   { return "exit status " + strconv.Itoa(e.status) }
+func (e fakeExitError) ExitStatus() int { return e.status }
+
+func TestFileExists(t *testing.T) {
+	tests := []struct {
+		name    string
+		err     error
+		want    bool
+		wantErr bool
+	}{
+		{name: "exists", err: nil, want: true},
+		{name: "does not exist", err: fakeExitError{status: 1}, want: false},
+		{name: "other exit status", err: fakeExitError{status: 2}, wantErr: true},
+		{name: "transport error", err: errors.New("connection reset"), wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			host := fakeHost{name: "h", cmd: &fakeCmdRunner{err: tt.err}}
+			got, err := FileExists(context.Background(), host, "/some/path")
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("FileExists error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if !tt.wantErr && got != tt.want {
+				t.Fatalf("FileExists = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDirExists(t *testing.T) {
+	host := fakeHost{name: "h", cmd: &fakeCmdRunner{err: fakeExitError{status: 1}}}
+	got, err := DirExists(context.Background(), host, "/some/dir")
+	if err != nil {
+		t.Fatalf("DirExists: %v", err)
+	}
+	if got {
+		t.Fatal("DirExists = true, want false")
 	}
 }

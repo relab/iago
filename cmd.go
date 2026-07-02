@@ -106,3 +106,41 @@ func Output(ctx context.Context, host Host, cmd string) (string, error) {
 func Quote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
+
+// ExitStatus is implemented by an error carrying a remote process's exit
+// status, such as the golang.org/x/crypto/ssh package's *ssh.ExitError
+// returned by [Shell.Apply] when the remote command runs to completion but
+// exits non-zero. errors.AsType[iago.ExitStatus](err) extracts it from a
+// wrapped error (for example a [TaskError] from [Group.Run]) without the
+// caller importing golang.org/x/crypto/ssh, and distinguishes "the command
+// ran and exited non-zero" from "the command never completed" (a dial
+// failure, a dropped connection, and the like, none of which implement it).
+type ExitStatus interface {
+	error
+	ExitStatus() int
+}
+
+// FileExists reports whether path exists on host and is not a directory,
+// checked with a POSIX `test -f`. It returns false, nil when the remote
+// command determines the path fails the test (exit status 1); any other
+// failure (a transport error, a missing shell) is returned as an error.
+func FileExists(ctx context.Context, host Host, path string) (bool, error) {
+	return pathTest(ctx, host, "-f", path)
+}
+
+// DirExists reports whether path is a directory on host, checked with a
+// POSIX `test -d`. See [FileExists] for the exit-status contract.
+func DirExists(ctx context.Context, host Host, path string) (bool, error) {
+	return pathTest(ctx, host, "-d", path)
+}
+
+func pathTest(ctx context.Context, host Host, flag, path string) (bool, error) {
+	err := Shell{Command: "test " + flag + " " + Quote(path)}.Apply(ctx, host)
+	if err == nil {
+		return true, nil
+	}
+	if exitErr, ok := errors.AsType[ExitStatus](err); ok && exitErr.ExitStatus() == 1 {
+		return false, nil
+	}
+	return false, err
+}
