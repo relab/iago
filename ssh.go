@@ -560,11 +560,8 @@ func (h *sshHost) Execute(ctx context.Context, cmd string) (output string, err e
 	}()
 
 	session.Stdout = &buf
-	if err := session.Run(cmd); err != nil {
-		return "", nil
-	}
-
-	return buf.String(), nil
+	err = session.Run(cmd)
+	return buf.String(), err
 }
 
 func (h *sshHost) NewCommand() (CmdRunner, error) {
