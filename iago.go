@@ -201,6 +201,36 @@ func (g Group) Run(name string, f func(context.Context, Host) error) {
 	}
 }
 
+// Collect runs fn concurrently on every host in g and returns each host's
+// result keyed by host name, the value-returning counterpart to [Group.Run].
+// A host whose fn returns a non-nil error contributes no entry to the map;
+// that error is still delivered to g.ErrorHandler exactly as in Run, and the
+// joined result is returned as Collect's second value (nil when every host
+// succeeded). Writes into the returned map are synchronized, so callers need
+// no mutex of their own.
+//
+// A legitimate "nothing to report" for one host — an empty result, not a
+// failure — should be represented as a zero-value T with a nil error, so it
+// still gets an entry; reserve the error return for genuine command
+// failures and filter zero-value entries out afterward if desired.
+func Collect[T any](g Group, name string, fn func(context.Context, Host) (T, error)) (map[string]T, error) {
+	results := make(map[string]T, len(g.Hosts))
+	var mu sync.Mutex
+	var errs Errors
+	g.ErrorHandler = errs.Handle
+	g.Run(name, func(ctx context.Context, host Host) error {
+		v, err := fn(ctx, host)
+		if err != nil {
+			return err
+		}
+		mu.Lock()
+		results[host.Name()] = v
+		mu.Unlock()
+		return nil
+	})
+	return results, errs.Err()
+}
+
 // Close closes any connections to hosts and any group-owned shared resources
 // (such as ProxyJump connections shared across hosts in this group).
 // Hosts are closed concurrently; shared resources (e.g. ProxyJump clients)
