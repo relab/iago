@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 )
 
 // CmdRunner defines an interface for running commands on remote hosts.
@@ -96,4 +97,12 @@ func Output(ctx context.Context, host Host, cmd string) (string, error) {
 	var buf bytes.Buffer
 	err := Shell{Command: cmd, Stdout: &buf}.Apply(ctx, host)
 	return buf.String(), err
+}
+
+// Quote wraps s in single quotes so it is safe to embed as one argument in a
+// [Shell] command run on a POSIX shell. An embedded single quote is escaped
+// using the '\” idiom: end the quoted string, emit an escaped quote, and
+// resume quoting.
+func Quote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
