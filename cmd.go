@@ -1,6 +1,7 @@
 package iago
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -85,4 +86,14 @@ func (sa Shell) Apply(ctx context.Context, host Host) (err error) {
 func pipe(dst io.Writer, src io.Reader, errChan chan error) {
 	_, err := io.Copy(dst, src)
 	errChan <- err
+}
+
+// Output runs cmd on host as a shell command and returns its captured
+// standard output. It is a convenience wrapper around [Shell] for the common
+// case of wanting a command's output as a string rather than streaming it to
+// a caller-provided writer.
+func Output(ctx context.Context, host Host, cmd string) (string, error) {
+	var buf bytes.Buffer
+	err := Shell{Command: cmd, Stdout: &buf}.Apply(ctx, host)
+	return buf.String(), err
 }

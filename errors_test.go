@@ -7,15 +7,19 @@ import (
 	"testing"
 )
 
-// fakeHost is a no-op Host for exercising Group.Run without a real connection.
-// Only Name is meaningful; Group.Run uses it to label task errors.
-type fakeHost struct{ name string }
+// fakeHost is a no-op Host for exercising Group.Run without a real
+// connection. Name is used to label task errors; cmd, if set, backs
+// NewCommand for tests that exercise Shell/Output.
+type fakeHost struct {
+	name string
+	cmd  CmdRunner
+}
 
 func (h fakeHost) Name() string                   { return h.name }
 func (h fakeHost) Address() string                { return h.name }
 func (h fakeHost) GetEnv(string) string           { return "" }
 func (h fakeHost) GetFS() fs.FS                   { return nil }
-func (h fakeHost) NewCommand() (CmdRunner, error) { return nil, nil }
+func (h fakeHost) NewCommand() (CmdRunner, error) { return h.cmd, nil }
 func (h fakeHost) Close() error                   { return nil }
 func (h fakeHost) SetVar(string, any)             {}
 func (h fakeHost) GetVar(string) (any, bool)      { return nil, false }
@@ -51,7 +55,7 @@ func TestWithErrorHandlerOption(t *testing.T) {
 
 func TestGroupRunCollectsErrors(t *testing.T) {
 	var errs Errors
-	g := NewGroup([]Host{fakeHost{"a"}, fakeHost{"b"}, fakeHost{"c"}})
+	g := NewGroup([]Host{fakeHost{name: "a"}, fakeHost{name: "b"}, fakeHost{name: "c"}})
 	g.ErrorHandler = errs.Handle
 
 	g.Run("task", func(ctx context.Context, host Host) error {
