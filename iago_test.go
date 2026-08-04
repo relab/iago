@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/relab/iago"
 	"github.com/relab/iago/iagotest"
@@ -75,6 +76,26 @@ func TestIago(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Log(string(f))
+	}
+}
+
+// TestStartHonorsContextTimeout verifies that a task using the "start now,
+// wait later" pattern via RunContext respects the group's timeout: a
+// long-running remote command must be aborted promptly when the context
+// deadline expires, instead of blocking until the remote process exits.
+func TestStartHonorsContextTimeout(t *testing.T) {
+	g := iagotest.CreateSSHGroup(t, 1, false)
+	g.Timeout = 500 * time.Millisecond
+
+	start := time.Now()
+	g.ErrorHandler = iago.Ignore
+	g.Run("Sleep beyond timeout", func(ctx context.Context, host iago.Host) error {
+		return iago.Shell{Command: "sleep 60"}.Apply(ctx, host)
+	})
+	elapsed := time.Since(start)
+
+	if elapsed >= 60*time.Second {
+		t.Fatalf("Wait did not honor context timeout: took %s", elapsed)
 	}
 }
 

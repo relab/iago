@@ -20,8 +20,6 @@ type fakeCmdRunner struct {
 
 func (r *fakeCmdRunner) Run(string) error                         { return r.err }
 func (r *fakeCmdRunner) RunContext(context.Context, string) error { return r.err }
-func (r *fakeCmdRunner) Start(string) error                       { return r.err }
-func (r *fakeCmdRunner) Wait() error                              { return r.err }
 func (r *fakeCmdRunner) StdinPipe() (io.WriteCloser, error)       { return nil, errors.New("not supported") }
 func (r *fakeCmdRunner) StdoutPipe() (io.ReadCloser, error) {
 	return io.NopCloser(strings.NewReader(r.output)), nil

@@ -639,7 +639,7 @@ func (c sshCmd) Run(cmd string) (err error) {
 }
 
 func (c sshCmd) RunContext(ctx context.Context, cmd string) (err error) {
-	if err = c.session.Start(cmd); err != nil {
+	if err = c.start(cmd); err != nil {
 		return err
 	}
 
@@ -657,14 +657,14 @@ func (c sshCmd) RunContext(ctx context.Context, cmd string) (err error) {
 		errChan <- c.session.Close()
 	}()
 
-	return c.session.Wait()
+	return c.wait()
 }
 
-func (c sshCmd) Start(cmd string) error {
+func (c sshCmd) start(cmd string) error {
 	return c.session.Start(cmd)
 }
 
-func (c sshCmd) Wait() (err error) {
+func (c sshCmd) wait() (err error) {
 	defer safeClose(c.session, &err, io.EOF)
 	return c.session.Wait()
 }
