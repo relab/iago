@@ -13,8 +13,6 @@ import (
 type CmdRunner interface {
 	Run(cmd string) error
 	RunContext(ctx context.Context, cmd string) error
-	Start(cmd string) error
-	Wait() error
 
 	StdinPipe() (io.WriteCloser, error)
 	StdoutPipe() (io.ReadCloser, error)
